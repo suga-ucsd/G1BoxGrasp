@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>g1_grasp Function Map</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #5d6778; --line: #d5dae3; --edge: #b7bfcc;
+  --hi-out: #d9480f; --hi-in: #1971c2; --sel: #111827;
+  --c0: #7048e8; --c1: #1971c2; --c2: #0c8599; --c3: #2f9e44; --c4: #e67700; --c5: #868e96; --c6: #c2255c;
+  --chip: #eef1f5; --code: #f1f3f6;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b; --edge: #3a4250;
+  --hi-out: #ff8a4c; --hi-in: #5aa9ff; --sel: #ffffff;
+  --c0: #9775fa; --c1: #4dabf7; --c2: #3bc9db; --c3: #69db7c; --c4: #ffa94d; --c5: #adb5bd; --c6: #f783ac;
+  --chip: #212733; --code: #1d222c;
+} }
+:root[data-theme="dark"] {
+  --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b; --edge: #3a4250;
+  --hi-out: #ff8a4c; --hi-in: #5aa9ff; --sel: #ffffff;
+  --c0: #9775fa; --c1: #4dabf7; --c2: #3bc9db; --c3: #69db7c; --c4: #ffa94d; --c5: #adb5bd; --c6: #f783ac;
+  --chip: #212733; --code: #1d222c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 20px 16px 8px; max-width: 1400px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 28px 0 10px; }
+p.sub { color: var(--muted); margin: 0; }
+main { max-width: 1400px; margin: 0 auto; padding: 0 16px 40px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 12px 0; }
+.controls label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+.controls input[type=search] { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); min-width: 200px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; }
+@media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+.graph { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: auto; max-height: 78vh; }
+svg { display: block; }
+.node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1; rx: 6; }
+.node .bar { stroke: none; }
+.node text { font-size: 11.5px; fill: var(--ink); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; pointer-events: none; }
+.node { cursor: pointer; }
+.node:hover rect.box { stroke: var(--muted); }
+.node.dim { opacity: .22; }
+.node.sel rect.box { stroke: var(--sel); stroke-width: 2; }
+.node.out rect.box { stroke: var(--hi-out); stroke-width: 1.6; }
+.node.in rect.box { stroke: var(--hi-in); stroke-width: 1.6; }
+.colhead { font-size: 11px; fill: var(--muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+path.edge { fill: none; stroke: var(--edge); stroke-width: 1; opacity: .55; }
+path.edge.dim { opacity: .06; }
+path.edge.out { stroke: var(--hi-out); opacity: 1; stroke-width: 1.6; }
+path.edge.in { stroke: var(--hi-in); opacity: 1; stroke-width: 1.6; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; max-height: 78vh; overflow: auto; }
+.panel h3 { margin: 0 0 2px; font: 600 15px ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.panel .grp { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.panel h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 4px; }
+.panel ul { margin: 0; padding-left: 18px; }
+.panel li { margin: 2px 0; }
+code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+code { background: var(--code); padding: 1px 4px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { background: var(--code); padding: 8px 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 4px 0; white-space: pre-wrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; cursor: pointer; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.chip.in { box-shadow: inset 0 0 0 1px var(--hi-in); }
+.chip.out { box-shadow: inset 0 0 0 1px var(--hi-out); }
+.hint { color: var(--muted); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--chip); }
+tr:last-child td { border-bottom: none; }
+.tablewrap { overflow-x: auto; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.ph { border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; font: 12px ui-monospace, Menlo, Consolas, monospace; background: var(--chip); }
+.ph small { color: var(--muted); font-family: system-ui, sans-serif; }
+.arrow { color: var(--muted); }
+.flowrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; width: 100%; }
+.flowrow .lbl { font-size: 12px; color: var(--muted); min-width: 110px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>g1_grasp.cs: function map</h1>
+  <p class="sub">Every function in <code>G1Pipe.G1BoxGrasp</code>, what it calls, what engine data it reads (bodies, geoms, sites, entities) and which errors or thresholds it computes. Click a node: <span style="color:var(--hi-out)">orange</span> = what it depends on, <span style="color:var(--hi-in)">blue</span> = what uses it.</p>
+</header>
+<main>
+  <div class="controls">
+    <input type="search" id="q" placeholder="Find a function or API call…" aria-label="Find a function">
+    <label><input type="checkbox" id="showMath"> Show math helpers</label>
+    <label><input type="checkbox" id="showAdvance" checked> Show Advance / NextStep / Log / Fail edges</label>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div class="layout">
+    <div class="graph" id="graph"></div>
+    <aside class="panel" id="panel"><p class="hint">Select a node to see its details: signature, what it reads from the engine, what it computes, and every caller and callee.</p></aside>
+  </div>
+
+  <h2>Phase flow and the Phases checkboxes</h2>
+  <div class="flow" id="flow"></div>
+
+  <h2>What is queried from the engine</h2>
+  <div class="tablewrap"><table id="sources"></table></div>
+
+  <h2>Errors, checks and thresholds</h2>
+  <div class="tablewrap"><table id="checks"></table></div>
+</main>
+
+<script>
+// ---- Groups (graph columns) -----------------------------------------------------------
+const GROUPS = [
+  { id: 0, name: "Lifecycle & control", color: "--c0" },
+  { id: 1, name: "Phase entry / step", color: "--c1" },
+  { id: 2, name: "Behaviours", color: "--c2" },
+  { id: 3, name: "Targets & checks", color: "--c3" },
+  { id: 4, name: "State readers & frames", color: "--c4" },
+  { id: 5, name: "Math helpers", color: "--c5" },
+  { id: 6, name: "Engine API", color: "--c6" },
+];
+
+// ---- Nodes: [name, group, signature, role, reads[], computes[] ] ----------------------
+const N = {};
+function node(name, g, sig, role, reads = [], computes = []) { N[name] = { name, g, sig, role, reads, computes, calls: [] }; }
+
+node("OnCreate", 0, "protected override void OnCreate()", "Gets RobotControllerComponent + MujocoSceneComponent (logs an error and does nothing if either is missing), turns the walker on (legs + waist only) so the robot stands from the first step.", ["GetComponent<RobotControllerComponent>()", "GetComponent<MujocoSceneComponent>()"]);
+node("OnUpdate", 0, "protected override void OnUpdate(float ts)", "Every frame: advances the phase/step/watchdog timers, prints the status line every LogInterval, zeroes the walk command, then runs the current phase (switch). Walk/turn phases override the zero command. FindBox, FaceBox, WalkToBox, FaceChute, PullIn, TurnToTable, WalkToTable and FaceTable are handled inline here.", [], ["m_PhaseTime, m_StepTime, m_SinceBest, m_WatchTime += ts", "FindBox: m_Reach = StandDistance; m_Repositions = m_SqueezeTries = m_WalkRetries = 0; m_Stand = StandFor(Chute, box, m_Reach, FaceOf(Chute))", "FaceBox / TurnToTable: skip the turn if |flat(m_Stand − pelvis)| < k_NearRadius = 0.4 m at step 0", "WalkToBox / WalkToTable: WalkTo(m_Stand, ArriveTolerance, steer) else Stalled(m_ToGo, k_WalkProgress = 0.02 m, WalkTimeout) → WalkStalled", "PullIn: MoveTowards(m_Center, CarryOffset, k_CarrySpeed = 0.1 m/s · dt)", "Transitions gated by the Phases checkboxes (WalkToBox, LiftBox, CarryToTable, PlaceBox, RepeatLoop)"]);
+node("Begin", 0, "private void Begin()", "First frames (MuJoCo not ready in OnCreate). Caches the MuJoCo→Hazel conversion, finds the pelvis and boxes (unwelds them), sets the arm IK flags, finds grasp sites, shoulder links and hand geoms (fails loudly on a missing part), reads the conveyor plane, folds the arms.", ["GetAxisHzToMj(), GetSceneTranslation()", "GetBodyID(\"pelvis\")", "ChuteEntity / PlaceTarget must be assigned", "GetActuator(<side>_shoulder_pitch/roll/yaw, _elbow, _wrist_roll/pitch/yaw)_joint", "GetSiteID(\"<side>_grasp_site\"), GetBodyID(\"<side>_shoulder_pitch_link\")", "IK inputs <Side>Arm_Solve_Orientation=false, _High_Accuracy=true, _Pole_Weight=1", "ChuteEntity.Transform (normal, top face)"], ["m_MjToHz = Conjugate(GetAxisHzToMj()); m_MjOffset = GetSceneTranslation()", "act.IK = shoulders + elbow true, wrists false", "m_ChuteN = chuteRot·Up; m_ChuteTop = TopOf(ChuteEntity)", "No pelvis / no boxes: retry each frame, Fail(…, retry:false) once m_PhaseTime > 2 s", "Missing entity / actuator / site / shoulder link → Fail(…, retry:false)"]);
+node("Arm", 0, "public Arm(float side)  // nested class Arm", "Per-arm data (Side = +1 left / −1 right, joint prefix, IK input prefix, cached IK ids, site, shoulder link, hand geoms, tare baseline, Gap/Raise/Force). Built by the m_Arms field initializer.", ["IK input ids <Side>Arm_Target_Position, <Side>Arm_Pole_Target"], ["Name = side > 0 ? \"left\" : \"right\"; Input = \"LeftArm_\" / \"RightArm_\""]);
+node("Advance", 0, "private void Advance(Phase next)", "The only place the phase changes. Logs '[G1] A -> B', resets m_Step, m_PhaseTime, m_StepTime, m_ToGo and the progress watchdog.");
+node("NextStep", 0, "private void NextStep()", "Next sub-step inside a phase (Squeeze, Reposition, Place, Retract, Recover, Turn); resets m_StepTime and the watchdog.");
+node("Stalled", 0, "private bool Stalled(float metric, float minGain, float cap)", "Progress watchdog shared by every phase: tracks the best (smallest) metric; true once it hasn't improved by minGain for StallTime, or the watch has run longer than cap.", [], ["metric < m_Best − minGain → m_Best = metric, m_SinceBest = 0", "stalled = m_SinceBest > StallTime (3 s) || m_WatchTime > cap", "cap = WalkTimeout (60 s) for walks, PhaseTimeout (15 s) otherwise"]);
+node("ResetWatch", 0, "private void ResetWatch()", "Restarts the watchdog (called by Advance, NextStep and a Turn retry).", [], ["m_Best = float.MaxValue; m_SinceBest = m_WatchTime = 0"]);
+node("Fail", 0, "private void Fail(string reason, bool retry = true, bool skip = false)", "Logs the reason, counts a failed attempt against the box (skip = give it up now), folds the arms (letting go of any box), → Recover. retry=false means stop for good after Recover.", [], ["retry && m_Box ≥ 0 && (skip || ++m_Fails[m_Box] ≥ MaxBoxAttempts (2)) → m_Fails[m_Box] = MaxBoxAttempts, 'skipping box until it moves'", "m_Retry = retry"]);
+node("LogStatus", 0, "private void LogStatus()", "Status line every LogInterval: phase, pelvis (x,y,z) + yaw, last walk command; walk goal + distance left (FaceBox, WalkToBox, Reposition, TurnToTable, WalkToTable); in FindBox every box with distance, gap, speed, reach shortfall and skip state; else the handled box; in PreGrasp…Release each hand's error, force, gap.", [], ["Prints HandError, Force, Gap, ChuteGap, BoxSpeed, ReachShort, m_ToGo, m_Fails ≥ MaxBoxAttempts"]);
+
+node("EnterPreGrasp", 1, "private void EnterPreGrasp()", "Builds the grip frame from the box as it is now, fails fast (and skips the box) if it sits below the arms' reach, then sends both hands above the box's side faces (Start, MoveDuration).", ["Shoulder link heights (LowBy)"], ["LowBy(m_Center.Y) > 0 → Fail('box too low …', skip: true)", "m_Carrying = false; m_Lift = 0; m_Boost = 1", "Arm.Gap = HandStandoff; Arm.Raise = m_HalfH + ApproachHeight"]);
+node("StepPreGrasp", 1, "private void StepPreGrasp()", "After MoveDuration, waits until both grasp sites are within ReachTolerance of their raised targets, then tares the contact sensors and lowers both hands beside the box (Start). A reach that stalls short goes to GraspOutOfReach.", ["Grasp sites (HandError)"], ["err = max(HandError L, R) ≤ ReachTolerance (0.05 m)", "else Stalled(err, k_ReachProgress = 0.005 m, PhaseTimeout) → GraspOutOfReach"]);
+node("StepSqueeze", 1, "private void StepSqueeze(float ts)", "Step 0: wait for the lowering move, then go on when the hands are in place or already touching; a stalled reach goes to GraspOutOfReach. Step 1: squeeze admittance until both hands hold ≥ 65 % of the required force for 0.5 s; a grip stuck with a hand at its squeeze limit goes to RetrySqueeze.", ["Hand geom contact forces (ReadForces / Squeeze)", "Box mass (RequiredForce)", "Grasp sites, box centre"], ["Step 0: err ≤ ReachTolerance || F_L + F_R > k_TouchForce (2 N) → step 1; else Stalled(err, 0.005 m, PhaseTimeout) → GraspOutOfReach", "min = (1 − k_ForceTolFrac 0.35)·F_req; m_StepTime reset while any hand < min", "stuck = a hand < min && Gap ≤ 0.001 − k_MaxSqueezeDepth (−0.029 m); !stuck resets m_SinceBest", "m_StepTime ≥ k_GripConfirm (0.5 s) → grip: m_Y0 = PalmMidY − boxY, m_Slot = pick spot, m_Repositions = 0", "m_SinceBest > StallTime || m_WatchTime > PhaseTimeout → RetrySqueeze", "Next: Lift (LiftBox) / Release (PlaceBox) / Holding"]);
+node("RetrySqueeze", 1, "private void RetrySqueeze(float req)", "Grip didn't build: reopen the hands, re-measure the box (SetGripFrame) and re-centre at grip height, then squeeze again. Fails after MaxSqueezeTries.", [], ["++m_SqueezeTries ≥ MaxSqueezeTries (3) → Fail('grip too weak after N squeezes')", "Arm.Gap = HandStandoff (Raise stays 0) → Squeeze"]);
+node("GraspOutOfReach", 1, "private void GraspOutOfReach()", "Hands can't reach their targets beside the box: asks StepCloser for a closer stand point; if there is one, raise the hands again and go to Reposition, else fail the attempt.", ["Grasp sites (HandError, for the log)", "Box centre"], ["!StepCloser(ChuteEntity, box) → Fail('reach short …, no closer stand point helps')", "Arm.Gap = HandStandoff; Arm.Raise = m_HalfH + ApproachHeight → Reposition"]);
+node("StepReposition", 1, "private void StepReposition(float ts)", "Steps straight onto the closer stand point without turning (holding the box if carrying), settles, then reaches again (EnterPreGrasp) or places again (Place). A stalled step doesn't fail: it reaches from where it stands.", ["Pelvis position + heading (WalkTo)"], ["Step 0: WalkTo(m_Stand, RepositionTolerance (0.03 m), steer:false); not there && Stalled(m_ToGo, 0.02 m, PhaseTimeout) → warn, go on", "Step 1: m_StepTime ≥ k_Settle (0.6 s) → Place (carrying) / EnterPreGrasp", "Carrying: Hold() every frame (slip can Fail)"]);
+node("StepLift", 1, "private void StepLift(float ts)", "Raises the box at 5 cm/s to LiftHeight while holding, then switches the grip frame to pelvis coordinates so the box follows the body.", [], ["m_Lift = min(m_Lift + k_LiftSpeed (0.05)·dt, LiftHeight)", "m_Center/m_Lat/m_Fwd → ToBody(...); m_Carrying = true", "Next: PullIn (CarryToTable) / Place (PlaceBox) / Holding"]);
+node("EnterTurnToTable", 1, "private void EnterTurnToTable()", "Chooses the nearest free table slot and the stand point in front of it (fixed), resets the reach and walk retries, logs it.", ["PlaceTarget.Transform (via FreeSlot, StandFor, FaceOf)"], ["!FreeSlot → Fail('the table is full', retry:false)", "m_Reach = PlaceStandDistance; m_WalkRetries = 0", "m_Stand = StandFor(PlaceTarget, m_Slot, m_Reach, FaceOf(PlaceTarget))"]);
+node("StepPlace", 1, "private void StepPlace(float ts)", "Step 0: settle, grip frame back to world. Step 1: move the box to 5 cm above its spot. Step 2: lower at 3 cm/s until the surface (or the arms) stop it; if it stopped above the spot and the spot isn't too low, step closer (Reposition, carrying in pelvis coords) and place again; else release.", ["Box geom pose (BoxCenter)", "Shoulder link heights (LowBy)"], ["Step 0: m_StepTime ≥ k_Settle (0.6 s)", "Step 1: MoveTowards(m_Center, rest + Up·k_PlaceHover (0.05), k_CarrySpeed·dt)", "Step 2: m_Center −= Up·k_PlaceLowerSpeed (0.03)·dt; rest = m_Slot + Up·m_HalfH; above = boxY − rest.Y", "Keep lowering while above > 0.02 m && m_Center.Y > boxY − 0.02 m", "above > 0.02 && LowBy(rest.Y) ≤ 0 && StepCloser(CarryToTable ? PlaceTarget : ChuteEntity, m_Slot) → Reposition", "else → Release (logs why)"]);
+node("StepRelease", 1, "private void StepRelease(float ts)", "Opens both palms outward at 5 cm/s up to 5 cm, holds until 1.5 s, then starts lifting the hands 10 cm (Start).", [], ["Arm.Gap = min(Gap + k_OpenSpeed (0.05)·dt, k_ReleaseGap (0.05))", "m_PhaseTime ≥ k_ReleaseTime (1.5 s) → m_Lift = k_RetractUp (0.10) → Retract"]);
+node("StepRetract", 1, "private void StepRetract()", "Hands up first, then back to the fold pose (never forward over the placed box), logs the placement error, then FindBox (RepeatLoop) or Done.", ["Box geom pose (placement error)"], ["Step 0: m_PhaseTime ≥ MoveDuration → fold (Start)", "Step 1: m_PhaseTime ≥ 2·MoveDuration", "placement error = |flat(boxCentre − m_Slot)|"]);
+node("StepRecover", 1, "private void StepRecover()", "After a Fail: folds the arms; if the rotator is still active, sends zero commands for 0.2 s and hands back to the walker; then waits and goes for the next box or stops.", [], ["rotator on: m_StepTime ≥ k_DecelTime (0.2 s) → SetLocomotion(false)", "m_StepTime ≥ max(MoveDuration, k_Settle) → FindBox if m_Retry && RepeatLoop, else Failed"]);
+node("WalkStalled", 1, "private void WalkStalled(Phase turn)", "A walk made no progress: turn toward the goal again (FaceBox / TurnToTable) and resume, up to MaxWalkRetries; else fail the attempt.", [], ["++m_WalkRetries > MaxWalkRetries (2) → Fail('walk stalled … after N re-turns')", "else Advance(turn)"]);
+
+node("Hold", 2, "private bool Hold(float ts)", "Every frame while holding: squeeze to the required force, write the hand targets, watch for slip. Returns false (after Fail) if the box slides out.", ["Grasp sites (PalmMidY)", "Box geom pose (BoxCenter)"], ["slip = PalmMidY − boxY − m_Y0", "slip > k_SlipTol (0.01 m) → m_Boost = min(m_Boost + dt, 2)", "slip > k_DropTol (0.05 m) → Fail('box slipped out of the hands')"]);
+node("Squeeze", 2, "private void Squeeze(float ts, float target)", "Reads the tared hand forces, then runs the admittance on each palm gap.", [], ["Gap −= clamp(k_DepthGain 0.002·(target − Force), ±k_MaxSqueezeRate 0.02)·dt", "Gap clamped to [−k_MaxSqueezeDepth (−0.03), HandStandoff]"]);
+node("ReadForces", 2, "private void ReadForces()", "Tared contact force of each hand, summed over its collision geoms.", ["GetGeomContactForce(each hand geom)"], ["Arm.Force = Σ max(0, contactForce(g_i) − Base[i])"]);
+node("Tare", 2, "private void Tare()", "Stores each hand geom's contact force as its baseline (hands above the box), so constant self-contact isn't read as grip.", ["GetGeomContactForce(each hand geom)"], ["Arm.Base[i] = contactForce(g_i)"]);
+node("RestingBox", 2, "private int RestingBox()", "Nearest box that rests on the conveyor, is reachable from outside its edge (only checked with WalkToBox on) and hasn't failed MaxBoxAttempts times. −1 if none.", ["Box geom poses, body velocities", "Pelvis position"], ["BoxSpeed > 0.2 m/s → m_Fails[i] = 0 (moving box gets fresh attempts)", "|ChuteGap| < 0.02 m", "BoxSpeed < k_RestSpeed (0.02 m/s)", "ReachShort(Chute, box, StandDistance) ≤ 0.05 m (WalkToBox only)", "m_Fails[i] < MaxBoxAttempts (2)"]);
+node("FindBoxes", 2, "private void FindBoxes()", "Builds the box list: every box geom (type 6) on a scene body named lucky_body_<entity id> that has a free joint.", ["ModelNgeom, ModelNjnt", "GetGeomDescriptor(g) → parent body, type, size", "GetBodyNameByIndex(body)", "GetBodyFreeJointIndex(body)"], ["m_Boxes = (Body, Geom, Half = geom size = half extents)", "free joint ⇔ GetBodyFreeJointIndex(b) < ModelNjnt"]);
+node("FreeSlot", 2, "private bool FreeSlot(out Vector3 slot)", "Nearest free slot on the table top: a line PlaceEdgeInset in from the near edge, slots every PlaceSpacing, inset from both ends. False if all taken.", ["PlaceTarget.Transform (scale, rotation)", "All box centres (occupancy)"], ["line = TopOf(table) − face·(halfWidth − PlaceEdgeInset)", "slots s ∈ [−halfLen + inset, halfLen − inset] step PlaceSpacing", "taken if another box is within PlaceSpacing/2 (flat) and 0.3 m (height)"]);
+node("HandGeoms", 2, "private uint[] HandGeoms(string side)", "Collision geoms of one hand, for force sensing.", ["ModelNgeom", "GetGeomDescriptor(g) → parent body, contype, conaffinity", "GetBodyNameByIndex(body): <side>_wrist_yaw_link or <side>_hand_*"], ["Skips visual geoms (contype | conaffinity == 0)"]);
+node("SendHands", 2, "private void SendHands(Func<Arm,Vector3> target, float duration)", "The only path to the IK: writes both hand targets (HandTarget or Fold, passed as a delegate) and elbow poles; duration > 0 also fires Start (graph stores the pose and min-jerk-blends to the new IK solution). No-op until the pelvis is known.", ["IK inputs LeftArm_/RightArm_Target_Position, _Pole_Target, Duration, Start"], ["Pole = BodyPoint(Mirror(PoleOffset, side))"]);
+node("WalkTo", 2, "private bool WalkTo(Vector3 goal, float tol, bool steer)", "Closed-loop walk to a point: steer at it while far (if steer); otherwise step straight onto it (vx + vy, no yaw, slowing near it). True within tol.", ["Pelvis position + heading"], ["m_ToGo = |flat(goal − pelvis)| ≤ tol → arrived", "steer && m_ToGo > k_NearRadius (0.4 m): vx = WalkSpeed if |err| < 0.6 rad, yaw = clamp(k_YawGain 2·err, ±k_MaxYawRate 1)", "else speed = clamp(m_ToGo·k_StepGain 2, k_MinStepSpeed 0.1, WalkSpeed) along (to·fwd, to·left)"]);
+node("Turn", 2, "private bool Turn(float yaw)", "Rotator turn to a heading fixed at the start: settle 0.6 s → walker→rotator → ramped P-turn → 0.2 s zero → rotator→walker → settle. A stalled turn is retried with a higher minimum rate; still stalled after MaxTurnTries → Fail.", ["Pelvis heading"], ["err = wrap(m_TurnYaw − heading yaw); done when |err| ≤ TurnTolerance (0.1 rad)", "rate = sign(err)·clamp(2|err|, min(MinTurnRate·tries, 0.7), 0.7)·min(1, t / 0.5)", "Stalled(|err|, k_TurnProgress 0.02 rad, PhaseTimeout) → tries ≥ MaxTurnTries (2) ? Fail : ++tries, restart ramp, ResetWatch"]);
+node("SetLocomotion", 2, "private void SetLocomotion(bool rotator)", "Swaps walker ↔ rotator; the incoming policy gets legs + waist only (arms stay with the IK).", ["SetDrivenJoints(slot, legs+waist)", "SetPolicyActive(slot, on/off)"], ["m_RotatorOn = rotator"]);
+node("Drive", 2, "private void Drive(float vx, float vy, float yawRate)", "Writes the 3 commands to the active locomotion policy and remembers them for the log.", ["SetFloat(slot, 1=SetVx / 2=SetVy / 3=SetYawRate)"]);
+
+node("SetGripFrame", 3, "private void SetGripFrame()", "Grip frame from the box as it is now: forward = the box's own horizontal axis closest to the pelvis heading, squeeze axis to its left, centre and half extents.", ["GetGeomPoseMj(box geom) → rotation", "Pelvis heading"], ["r = m_MjToHz·q_geom; m_Fwd = ±flatDir(r·axis_k) with the largest |flat(axis)·heading| (unnormalised, so a near-vertical axis never wins)", "m_Lat = LeftOf(m_Fwd); m_Center = BoxCenter(box)", "m_HalfW/D/H = HalfExtent(box, m_Lat / m_Fwd / Up)"]);
+node("StepCloser", 3, "private bool StepCloser(Entity surface, Vector3 p, string why)", "Next stand point m_Reach in front of p along the grip axis, a little closer each failed try (≥ MinStandDistance, EdgeClearance kept from the surface edge). False if the repositions are used up or the new point isn't a real move.", ["Pelvis position"], ["dist = flat(p − pelvis)·m_Fwd", "dist ≤ m_Reach + RepositionTolerance → m_Reach = max(MinStandDistance 0.20, dist − RepositionStep 0.04)", "stand = StandFor(surface, p, m_Reach, m_Fwd); move = |flat(stand − pelvis)|", "false if m_Repositions ≥ MaxRepositions (3) || move < RepositionTolerance (0.03 m)", "else m_Stand = stand, ++m_Repositions"]);
+node("HandTarget", 3, "private Vector3 HandTarget(Arm a)", "Where a hand should be relative to the box: palm Gap outside its side face, FrontInset behind the front face, raised by m_Lift + Raise. Uses pelvis coords while carrying.", [], ["c + lat·side·(halfW + Gap) + fwd·(FrontInset − halfD) + Up·(m_Lift + Raise)"]);
+node("Fold", 3, "private Vector3 Fold(Arm a)", "Folded hand target in front of the body.", [], ["BodyPoint(Mirror(FoldOffset, side))"]);
+node("HandError", 3, "private float HandError(Arm a)", "Distance from a grasp site (the LimbIK end effector) to its target: the reach error.", ["Grasp site position"], ["|SiteWorld(site) − HandTarget(a)|"]);
+node("PalmMidY", 3, "private float PalmMidY()", "Average height of the two grasp sites (for slip).", ["Grasp site positions"]);
+node("RequiredForce", 3, "private float RequiredForce()", "Squeeze force per hand that holds the box.", ["GetBodyMass(box body)"], ["F_req = GripSafetyFactor·m·9.81 / (2·BoxFriction) · m_Boost"]);
+node("LowBy", 3, "private float LowBy(float y)", "How far height y lies beyond ArmReach below the higher shoulder (> 0 = out of reach from any stand point).", ["<side>_shoulder_pitch_link body positions"], ["max(shoulderL.y, shoulderR.y) − y − ArmReach (0.50 m)"]);
+node("ChuteGap", 3, "private float ChuteGap(int i)", "Clearance under box i on the conveyor plane (0 = resting on it).", ["Box geom pose", "m_ChuteTop, m_ChuteN"], ["n·(boxCentre − chuteTop) − HalfExtent(i, n)"]);
+node("ReachShort", 3, "private float ReachShort(Entity s, Vector3 p, float reach)", "How much farther than reach the surface edge forces the robot to stand from p (> 0 = out of reach by that much).", [], ["face·(p − StandFor(s, p, reach, face)) − reach"]);
+node("StandFor", 3, "private Vector3 StandFor(Entity surface, Vector3 p, float reach, Vector3 dir)", "Pelvis spot to work on point p of a surface: reach behind p along dir, pushed back so the pelvis stays at least EdgeClearance outside the surface's near edge.", ["Surface entity Transform (translation, scale)"], ["stand = p − dir·reach", "clear = face·(surfaceCentre − stand) − 0.5·min(sx, sz)", "clear ≥ EdgeClearance ? stand : stand − face·(EdgeClearance − clear)"]);
+node("FaceOf", 3, "private Vector3 FaceOf(Entity e)", "Horizontal direction facing a surface square (across its long axis), from the robot's side.", ["Surface entity Transform (rotation, scale, translation)", "Pelvis position"], ["across = flatDir(rot · (sx > sz ? Forward : Right))", "sign so it points from the pelvis toward the surface"]);
+node("TopOf", 3, "private static Vector3 TopOf(Entity e)", "Centre of a unit-cube surface's top face.", ["Entity Transform (translation, rotation, scale.Y)"], ["pos + rot·Up·0.5·scaleY"]);
+node("HalfExtent", 3, "private float HalfExtent(int i, Vector3 dir)", "Half extent of box i along any world direction (support function of its box geom).", ["GetGeomPoseMj(box geom) → rotation", "Box half sizes from the geom descriptor"], ["Σ |dir · (R·axis_k)| · half_k,  R = m_MjToHz · q_geom"]);
+
+node("BoxCenter", 4, "private Vector3 BoxCenter(int i)", "Box centre in Hazel world coordinates.", ["GetGeomPoseMj(box geom) → position (MuJoCo frame)"], ["m_MjToHz · p + m_MjOffset"]);
+node("BoxSpeed", 4, "private float BoxSpeed(int i)", "Box linear speed.", ["GetBodyPoseMj(box body) → linear velocity"], ["|v|"]);
+node("SiteWorld", 4, "private Vector3 SiteWorld(uint site)", "Grasp site in Hazel world coordinates.", ["GetSitePositionMj(left_/right_grasp_site)"], ["m_MjToHz · p + m_MjOffset"]);
+node("BodyPos", 4, "private Vector3 BodyPos(uint body)", "Body position in Hazel world coordinates (pelvis, shoulder links).", ["GetBodyPoseMj(body) → position"], ["m_MjToHz · p + m_MjOffset"]);
+node("BodyRot", 4, "private Quaternion BodyRot(uint body)", "Body rotation in Hazel world coordinates.", ["GetBodyPoseMj(body) → orientation"], ["m_MjToHz · q"]);
+node("Pelvis", 4, "private Vector3 Pelvis()", "Pelvis position (world).", ["pelvis body"]);
+node("Heading", 4, "private Vector3 Heading()", "Pelvis horizontal forward (world).", ["pelvis body rotation"], ["flatDir(BodyRot(pelvis) · +X)"]);
+node("BodyPoint", 4, "private Vector3 BodyPoint(Vector3 b)", "Pelvis coords (forward, up, left) → world point.", [], ["Pelvis() + BodyDir(b)"]);
+node("BodyDir", 4, "private Vector3 BodyDir(Vector3 b)", "Pelvis coords → world direction (heading only, ignores body tilt).", [], ["Heading·b.x + Up·b.y + Left·b.z"]);
+node("ToBody", 4, "private Vector3 ToBody(Vector3 v)", "World vector → pelvis coords (forward, up, left).", [], ["(v·Heading, v.y, v·Left)"]);
+
+node("YawOf", 5, "static float YawOf(Vector3 d)", "Yaw of a horizontal direction (engine is Y-up).", [], ["atan2(−d.z, d.x)"]);
+node("LeftOf", 5, "static Vector3 LeftOf(Vector3 f)", "Left of a heading.", [], ["(f.z, 0, −f.x)"]);
+node("Flat", 5, "static Vector3 Flat(Vector3 v)", "Drops the height.", [], ["(v.x, 0, v.z)"]);
+node("FlatDir", 5, "static Vector3 FlatDir(Vector3 v)", "Unit horizontal direction.", [], ["Flat(v).Normalized()"]);
+node("Mirror", 5, "static Vector3 Mirror(Vector3 o, float side)", "Right arm mirrors the outward component.", [], ["(o.x, o.y, side·o.z)"]);
+node("MoveTowards", 5, "static bool MoveTowards(ref Vector3 p, Vector3 goal, float step)", "Moves p toward goal by at most step; true once there.", [], ["|goal − p| ≤ step → p = goal"]);
+
+const API = [
+  ["GetBodyPoseMj", "MujocoSceneComponent: body position / orientation / linear velocity in the MuJoCo frame (pelvis, shoulder links, boxes)."],
+  ["GetGeomPoseMj", "MujocoSceneComponent: geom position / orientation (MuJoCo frame) of the box geoms."],
+  ["GetSitePositionMj", "MujocoSceneComponent: site position (MuJoCo frame) of left_/right_grasp_site."],
+  ["GetGeomContactForce", "MujocoSceneComponent: contact force magnitude on a geom (against anything)."],
+  ["GetGeomDescriptor", "MujocoSceneComponent: parent body, type (6 = box), group, contype, conaffinity, size."],
+  ["ModelNgeom / ModelNjnt", "MujocoSceneComponent: geom count (scan range) and joint count (a valid free joint index is < ModelNjnt)."],
+  ["GetBodyNameByIndex", "MujocoSceneComponent: body name (scene bodies are lucky_body_<entity id>; hand links <side>_wrist_yaw_link, <side>_hand_*)."],
+  ["GetBodyFreeJointIndex", "MujocoSceneComponent: free joint of a body (boxes have one, static colliders don't)."],
+  ["GetBodyMass", "MujocoSceneComponent: body mass (box)."],
+  ["GetBodyID / GetSiteID", "MujocoSceneComponent: ids of \"pelvis\", \"<side>_shoulder_pitch_link\", \"<side>_grasp_site\"."],
+  ["GetActuator", "MujocoSceneComponent: arm joint actuators; .IK flag set (shoulders + elbow on, wrists off)."],
+  ["UnweldBody", "MujocoSceneComponent: clears welds left by old versions (once per box)."],
+  ["GetAxisHzToMj / GetSceneTranslation", "MujocoSceneComponent: MuJoCo ↔ Hazel conversion (cached once)."],
+  ["SetInputVector3", "RobotControllerComponent: <Side>Arm_Target_Position, <Side>Arm_Pole_Target."],
+  ["SetInputFloat / Bool / Trigger", "RobotControllerComponent: Duration, Start, Pole_Weight, Solve_Orientation, High_Accuracy."],
+  ["SetFloat", "RobotControllerComponent: walker (slot 1) / rotator (slot 2) commands 1 SetVx, 2 SetVy, 3 SetYawRate."],
+  ["SetDrivenJoints / SetPolicyActive", "RobotControllerComponent: policy joint mask (legs + waist) and on/off."],
+  ["Entity.Transform", "Hazel entities ChuteEntity and PlaceTarget: WorldTranslation, WorldRotationQuat, WorldScale (unit-cube surfaces)."],
+];
+API.forEach(([n, d]) => node(n, 6, n, d));
+
+// ---- Calls ------------------------------------------------------------------------------
+const C = {
+  OnCreate: ["SetLocomotion"],
+  OnUpdate: ["LogStatus", "Drive", "Begin", "SendHands", "Fold", "RestingBox", "StandFor", "BoxCenter", "FaceOf", "Flat", "Pelvis", "Advance", "EnterPreGrasp", "Turn", "YawOf", "WalkTo", "Stalled", "WalkStalled", "StepPreGrasp", "StepSqueeze", "StepReposition", "Hold", "StepLift", "MoveTowards", "EnterTurnToTable", "StepPlace", "StepRelease", "StepRetract", "StepRecover"],
+  Begin: ["GetAxisHzToMj / GetSceneTranslation", "GetBodyID / GetSiteID", "Fail", "FindBoxes", "UnweldBody", "GetActuator", "SetInputFloat / Bool / Trigger", "HandGeoms", "Entity.Transform", "TopOf", "Pelvis", "SendHands", "Fold", "Advance"],
+  EnterPreGrasp: ["SetGripFrame", "LowBy", "Fail", "SendHands", "HandTarget", "Advance"],
+  StepPreGrasp: ["SendHands", "HandTarget", "HandError", "Stalled", "GraspOutOfReach", "Tare", "Advance"],
+  StepSqueeze: ["SendHands", "HandTarget", "ReadForces", "HandError", "NextStep", "Stalled", "GraspOutOfReach", "RequiredForce", "Squeeze", "PalmMidY", "BoxCenter", "Advance", "RetrySqueeze"],
+  RetrySqueeze: ["Fail", "SetGripFrame", "SendHands", "HandTarget", "Advance"],
+  GraspOutOfReach: ["HandError", "StepCloser", "BoxCenter", "Fail", "SendHands", "HandTarget", "Advance"],
+  StepCloser: ["Flat", "Pelvis", "StandFor"],
+  StepReposition: ["Hold", "SendHands", "HandTarget", "WalkTo", "Stalled", "NextStep", "Advance", "EnterPreGrasp"],
+  StepLift: ["Hold", "ToBody", "Pelvis", "Advance"],
+  EnterTurnToTable: ["FreeSlot", "Fail", "StandFor", "FaceOf", "Advance"],
+  StepPlace: ["Hold", "BodyPoint", "BodyDir", "NextStep", "MoveTowards", "BoxCenter", "LowBy", "StepCloser", "ToBody", "Pelvis", "Advance"],
+  StepRelease: ["SendHands", "HandTarget", "Advance"],
+  StepRetract: ["SendHands", "HandTarget", "Fold", "NextStep", "Flat", "BoxCenter", "Advance"],
+  StepRecover: ["SendHands", "Fold", "SetLocomotion", "NextStep", "Advance"],
+  WalkStalled: ["Fail", "Advance"],
+  Hold: ["Squeeze", "RequiredForce", "SendHands", "HandTarget", "PalmMidY", "BoxCenter", "Fail"],
+  Squeeze: ["ReadForces"],
+  ReadForces: ["GetGeomContactForce"],
+  Tare: ["GetGeomContactForce"],
+  RestingBox: ["BoxSpeed", "BoxCenter", "Flat", "Pelvis", "ChuteGap", "ReachShort"],
+  FindBoxes: ["ModelNgeom / ModelNjnt", "GetGeomDescriptor", "GetBodyNameByIndex", "GetBodyFreeJointIndex"],
+  FreeSlot: ["Entity.Transform", "FaceOf", "LeftOf", "TopOf", "BoxCenter", "Flat", "Pelvis"],
+  HandGeoms: ["ModelNgeom / ModelNjnt", "GetGeomDescriptor", "GetBodyNameByIndex"],
+  SetGripFrame: ["GetGeomPoseMj", "Heading", "Flat", "FlatDir", "LeftOf", "BoxCenter", "HalfExtent"],
+  HandTarget: ["BodyPoint", "BodyDir"],
+  Fold: ["BodyPoint", "Mirror"],
+  SendHands: ["SetInputVector3", "SetInputFloat / Bool / Trigger", "BodyPoint", "Mirror"],
+  WalkTo: ["Flat", "Pelvis", "Heading", "YawOf", "Drive", "LeftOf"],
+  Turn: ["YawOf", "Heading", "SetLocomotion", "Drive", "Stalled", "Fail", "ResetWatch", "NextStep"],
+  SetLocomotion: ["SetDrivenJoints / SetPolicyActive"],
+  Drive: ["SetFloat"],
+  Advance: ["ResetWatch"],
+  NextStep: ["ResetWatch"],
+  LogStatus: ["Pelvis", "YawOf", "Heading", "Flat", "BoxCenter", "ChuteGap", "BoxSpeed", "ReachShort", "HandError"],
+  Fail: ["SendHands", "Fold", "Advance"],
+  TopOf: ["Entity.Transform"],
+  FaceOf: ["Entity.Transform", "FlatDir", "Pelvis"],
+  StandFor: ["FaceOf", "Entity.Transform"],
+  ReachShort: ["StandFor", "FaceOf"],
+  LowBy: ["BodyPos"],
+  BoxCenter: ["GetGeomPoseMj"],
+  BoxSpeed: ["GetBodyPoseMj"],
+  ChuteGap: ["BoxCenter", "HalfExtent"],
+  HalfExtent: ["GetGeomPoseMj"],
+  RequiredForce: ["GetBodyMass"],
+  HandError: ["SiteWorld", "HandTarget"],
+  PalmMidY: ["SiteWorld"],
+  SiteWorld: ["GetSitePositionMj"],
+  BodyPos: ["GetBodyPoseMj"],
+  BodyRot: ["GetBodyPoseMj"],
+  Pelvis: ["BodyPos"],
+  Heading: ["FlatDir", "BodyRot"],
+  BodyDir: ["Heading", "LeftOf"],
+  BodyPoint: ["Pelvis", "BodyDir"],
+  ToBody: ["Heading", "LeftOf"],
+  FlatDir: ["Flat"],
+};
+for (const [a, list] of Object.entries(C)) N[a].calls = list.filter(b => N[b]);
+const callers = {};
+Object.keys(N).forEach(k => callers[k] = []);
+Object.values(N).forEach(n => n.calls.forEach(c => callers[c].push(n.name)));
+const NOISY = new Set(["Advance", "LogStatus", "Fail", "NextStep", "ResetWatch"]);
+
+// ---- Layout -------------------------------------------------------------------------------
+const W = 176, H = 24, GAPY = 8, COLW = 232, TOP = 40, LEFT = 14;
+const svgNS = "http://www.w3.org/2000/svg";
+const graph = document.getElementById("graph");
+let selected = null;
+
+function visibleNodes() {
+  const math = document.getElementById("showMath").checked;
+  return Object.values(N).filter(n => math || n.g !== 5);
+}
+function edgeVisible(a, b) {
+  const adv = document.getElementById("showAdvance").checked;
+  const vis = new Set(visibleNodes().map(n => n.name));
+  if (!vis.has(a) || !vis.has(b)) return false;
+  return adv || !(NOISY.has(b) && b !== a);
+}
+function render() {
+  const nodes = visibleNodes();
+  const cols = GROUPS.filter(g => nodes.some(n => n.g === g.id));
+  const pos = {};
+  let maxRows = 0;
+  cols.forEach((g, ci) => {
+    const list = nodes.filter(n => n.g === g.id);
+    list.forEach((n, ri) => pos[n.name] = { x: LEFT + ci * COLW, y: TOP + ri * (H + GAPY) });
+    maxRows = Math.max(maxRows, list.length);
+  });
+  const width = LEFT * 2 + cols.length * COLW - (COLW - W), height = TOP + maxRows * (H + GAPY) + 10;
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", width); svg.setAttribute("height", height); svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("role", "img"); svg.setAttribute("aria-label", "Call graph of g1_grasp.cs");
+  cols.forEach((g, ci) => {
+    const t = document.createElementNS(svgNS, "text");
+    t.setAttribute("x", LEFT + ci * COLW); t.setAttribute("y", 22); t.setAttribute("class", "colhead"); t.textContent = g.name;
+    svg.appendChild(t);
+  });
+  const eg = document.createElementNS(svgNS, "g"); svg.appendChild(eg);
+  nodes.forEach(n => n.calls.forEach(c => {
+    if (!edgeVisible(n.name, c)) return;
+    const a = pos[n.name], b = pos[c];
+    let d;
+    if (b.x > a.x) { const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2, mx = (x1 + x2) / 2; d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; }
+    else { const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x + W, y2 = b.y + H / 2, bx = Math.max(x1, x2) + 26; d = `M${x1},${y1} C${bx},${y1} ${bx},${y2} ${x2},${y2}`; }
+    const p = document.createElementNS(svgNS, "path");
+    p.setAttribute("d", d); p.setAttribute("class", "edge"); p.dataset.a = n.name; p.dataset.b = c;
+    eg.appendChild(p);
+  }));
+  nodes.forEach(n => {
+    const g = document.createElementNS(svgNS, "g"); g.setAttribute("class", "node"); g.dataset.name = n.name;
+    g.setAttribute("transform", `translate(${pos[n.name].x},${pos[n.name].y})`); g.setAttribute("tabindex", "0");
+    const r = document.createElementNS(svgNS, "rect"); r.setAttribute("class", "box"); r.setAttribute("width", W); r.setAttribute("height", H); r.setAttribute("rx", 6);
+    const bar = document.createElementNS(svgNS, "rect"); bar.setAttribute("class", "bar"); bar.setAttribute("width", 4); bar.setAttribute("height", H); bar.setAttribute("rx", 2);
+    bar.setAttribute("fill", `var(${GROUPS[n.g].color})`);
+    const t = document.createElementNS(svgNS, "text"); t.setAttribute("x", 10); t.setAttribute("y", 16);
+    t.textContent = n.name.length > 24 ? n.name.slice(0, 23) + "…" : n.name;
+    const tt = document.createElementNS(svgNS, "title"); tt.textContent = n.name;
+    g.append(r, bar, t, tt);
+    g.addEventListener("click", () => select(n.name));
+    g.addEventListener("keydown", e => { if (e.key === "Enter") select(n.name); });
+    svg.appendChild(g);
+  });
+  graph.replaceChildren(svg);
+  if (selected && pos[selected]) highlight(selected);
+}
+
+// transitive closure in one direction
+function reach(start, dir) {
+  const seen = new Set(), stack = [start];
+  while (stack.length) {
+    const x = stack.pop();
+    for (const y of (dir === "out" ? N[x].calls : callers[x])) if (!seen.has(y)) { seen.add(y); stack.push(y); }
+  }
+  return seen;
+}
+function highlight(name) {
+  const outs = reach(name, "out"), ins = reach(name, "in");
+  document.querySelectorAll(".node").forEach(el => {
+    const k = el.dataset.name;
+    el.classList.toggle("sel", k === name);
+    el.classList.toggle("out", outs.has(k) && k !== name);
+    el.classList.toggle("in", ins.has(k) && k !== name && !outs.has(k));
+    el.classList.toggle("dim", k !== name && !outs.has(k) && !ins.has(k));
+  });
+  document.querySelectorAll("path.edge").forEach(p => {
+    const a = p.dataset.a, b = p.dataset.b;
+    const isOut = (a === name || outs.has(a)) && outs.has(b);
+    const isIn = (b === name || ins.has(b)) && ins.has(a);
+    p.classList.toggle("out", isOut); p.classList.toggle("in", isIn && !isOut); p.classList.toggle("dim", !isOut && !isIn);
+  });
+}
+function esc(s) { return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+function select(name) {
+  selected = name; highlight(name);
+  const n = N[name], outs = reach(name, "out"), api = [...outs].filter(x => N[x].g === 6);
+  const chips = (list, cls) => list.length ? `<div class="chips">${list.map(x => `<span class="chip ${cls}" data-go="${esc(x)}">${esc(x)}</span>`).join("")}</div>` : `<p class="hint">none</p>`;
+  document.getElementById("panel").innerHTML = `
+    <h3>${esc(n.name)}</h3><div class="grp">${GROUPS[n.g].name}</div>
+    <pre>${esc(n.sig)}</pre>
+    <p>${esc(n.role)}</p>
+    ${n.reads.length ? `<h4>Reads from the engine</h4><ul>${n.reads.map(r => `<li class="mono">${esc(r)}</li>`).join("")}</ul>` : ""}
+    ${n.computes.length ? `<h4>Computes / checks</h4><ul>${n.computes.map(r => `<li class="mono">${esc(r)}</li>`).join("")}</ul>` : ""}
+    <h4>Calls directly</h4>${chips(n.calls, "out")}
+    <h4>Called by</h4>${chips(callers[name], "in")}
+    <h4>Engine API reached (all levels)</h4>${chips(api, "out")}`;
+  document.querySelectorAll("[data-go]").forEach(el => el.addEventListener("click", () => select(el.dataset.go)));
+}
+
+// ---- Legend, controls ----------------------------------------------------------------------
+document.getElementById("legend").innerHTML = GROUPS.map(g => `<span style="--c: var(${g.color})">${g.name}</span>`).join("");
+document.getElementById("showMath").addEventListener("change", render);
+document.getElementById("showAdvance").addEventListener("change", render);
+document.getElementById("q").addEventListener("input", e => {
+  const q = e.target.value.trim().toLowerCase(); if (!q) return;
+  const hit = Object.keys(N).find(k => k.toLowerCase().includes(q));
+  if (hit) { if (N[hit].g === 5 && !document.getElementById("showMath").checked) { document.getElementById("showMath").checked = true; render(); } select(hit); }
+});
+render();
+
+// ---- Phase flow --------------------------------------------------------------------------------
+const ph = (n, s = "") => `<span class="ph">${n}${s ? ` <small>${s}</small>` : ""}</span>`;
+const ar = t => `<span class="arrow">${t || "→"}</span>`;
+document.getElementById("flow").innerHTML = `
+  <div class="flowrow"><span class="lbl">Setup</span>${ph("Start", "Begin() until pelvis + boxes found; Fail(stop) after 2 s or on a missing part")}${ar()}${ph("FindBox", "RestingBox(); reach = StandDistance; retry counters = 0")}</div>
+  <div class="flowrow"><span class="lbl">WalkToBox ☑</span>${ph("FaceBox", "Turn; skipped if stand point &lt; 0.4 m")}${ar()}${ph("WalkToBox", "WalkTo(m_Stand, ArriveTolerance)")}${ar()}${ph("FaceChute", "Turn to the conveyor face")}${ar()}${ph("EnterPreGrasp()")}</div>
+  <div class="flowrow"><span class="lbl">WalkToBox ☐</span>${ph("FindBox")}${ar()}${ph("EnterPreGrasp()", "grasp from where it stands")}</div>
+  <div class="flowrow"><span class="lbl">Walk retry</span>${ph("WalkToBox / WalkToTable", "Stalled(toGo, 2 cm, WalkTimeout)")}${ar()}${ph("WalkStalled()")}${ar()}${ph("FaceBox / TurnToTable", "re-turn, ≤ MaxWalkRetries")}${ar("|")}${ph("Fail()", "retries used up")}</div>
+  <div class="flowrow"><span class="lbl">Turn retry</span>${ph("Turn (any Face/Turn phase)", "Stalled(|err|, 0.02 rad, PhaseTimeout)")}${ar()}${ph("turn again", "min rate MinTurnRate·tries, ≤ MaxTurnTries")}${ar("|")}${ph("Fail()", "tries used up")}</div>
+  <div class="flowrow"><span class="lbl">Grasp</span>${ph("EnterPreGrasp()", "SetGripFrame; LowBy &gt; 0 → Fail(skip)")}${ar()}${ph("PreGrasp", "hands above, HandError ≤ ReachTolerance, Tare")}${ar()}${ph("Squeeze step 0", "lower; in place or F_L+F_R &gt; 2 N")}${ar()}${ph("Squeeze step 1", "both ≥ 65% F_req for 0.5 s")}</div>
+  <div class="flowrow"><span class="lbl">Reach → reposition</span>${ph("PreGrasp / Squeeze step 0", "Stalled(err, 5 mm, PhaseTimeout)")}${ar()}${ph("GraspOutOfReach()", "StepCloser: reach −= RepositionStep")}${ar()}${ph("Reposition", "step on (no turn), settle 0.6 s")}${ar()}${ph("EnterPreGrasp()", "≤ MaxRepositions")}${ar("|")}${ph("Fail()", "no closer point helps")}</div>
+  <div class="flowrow"><span class="lbl">Squeeze retry</span>${ph("Squeeze step 1", "stuck at squeeze limit for StallTime, or PhaseTimeout")}${ar()}${ph("RetrySqueeze()", "reopen, SetGripFrame, re-centre")}${ar()}${ph("Squeeze", "≤ MaxSqueezeTries squeezes")}${ar("|")}${ph("Fail()", "grip too weak")}</div>
+  <div class="flowrow"><span class="lbl">After grip</span>${ph("Lift", "LiftBox ☑")}${ar("|")}${ph("Release", "LiftBox ☐, PlaceBox ☑")}${ar("|")}${ph("Holding", "LiftBox ☐, PlaceBox ☐")}</div>
+  <div class="flowrow"><span class="lbl">After lift</span>${ph("PullIn", "CarryToTable ☑")}${ar("|")}${ph("Place", "CarryToTable ☐, PlaceBox ☑: back on the pick spot")}${ar("|")}${ph("Holding", "CarryToTable ☐, PlaceBox ☐")}</div>
+  <div class="flowrow"><span class="lbl">Carry</span>${ph("PullIn", "box to CarryOffset")}${ar()}${ph("EnterTurnToTable()", "FreeSlot (full → Fail stop), StandFor")}${ar()}${ph("TurnToTable", "skipped if &lt; 0.4 m")}${ar()}${ph("WalkToTable")}${ar()}${ph("FaceTable")}${ar()}${ph("Place", "PlaceBox ☑")}${ar("|")}${ph("Holding", "PlaceBox ☐")}</div>
+  <div class="flowrow"><span class="lbl">Place → reposition</span>${ph("Place step 2", "box stuck &gt; 2 cm above spot, spot not too low")}${ar()}${ph("StepCloser()", "on PlaceTarget (carry ☑) or ChuteEntity")}${ar()}${ph("Reposition", "carrying in pelvis coords")}${ar()}${ph("Place", "≤ MaxRepositions")}${ar("|")}${ph("Release", "else, wherever it is")}</div>
+  <div class="flowrow"><span class="lbl">Put down</span>${ph("Place", "settle, hover, lower")}${ar()}${ph("Release", "open palms")}${ar()}${ph("Retract", "up, fold")}${ar()}${ph("FindBox", "RepeatLoop ☑")}${ar("|")}${ph("Done", "RepeatLoop ☐")}</div>
+  <div class="flowrow"><span class="lbl">Failure</span>${ph("Fail()", "m_Fails++; skip box at MaxBoxAttempts")}${ar()}${ph("Recover", "fold; rotator → walker after 0.2 s; wait max(MoveDuration, 0.6 s)")}${ar()}${ph("FindBox", "retry &amp;&amp; RepeatLoop ☑")}${ar("|")}${ph("Failed", "RepeatLoop ☐, or setup / table-full error")}</div>`;
+
+// ---- Tables -----------------------------------------------------------------------------------
+const table = (el, head, rows) => document.getElementById(el).innerHTML =
+  `<thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>`;
+table("sources", ["Thing", "How it's found", "What's read", "Converted to", "Used by"], [
+  ["MuJoCo ↔ Hazel frame", "<code>GetAxisHzToMj()</code>, <code>GetSceneTranslation()</code> (once, in Begin)", "axis quaternion, scene offset", "<code>m_MjToHz = Conjugate(GetAxisHzToMj())</code>; world = <code>m_MjToHz·p + m_MjOffset</code>; rotations <code>m_MjToHz·q</code>", "BoxCenter, HalfExtent, SetGripFrame, SiteWorld, BodyPos, BodyRot"],
+  ["Pelvis body", "<code>GetBodyID(\"pelvis\")</code>", "<code>GetBodyPoseMj</code>: position, orientation", "world pos; heading = flatDir(rot·+X)", "Pelvis, Heading → every body-relative target, WalkTo, Turn, FaceOf, StepCloser, SetGripFrame, logs"],
+  ["Shoulder links", "<code>GetBodyID(\"left_shoulder_pitch_link\")</code>, <code>right_shoulder_pitch_link</code> (LimbIK chain roots)", "<code>GetBodyPoseMj</code>: position", "world pos (Y used)", "LowBy → EnterPreGrasp (box too low), StepPlace (spot too low)"],
+  ["Grasp sites (IK end effectors)", "<code>GetSiteID(\"left_grasp_site\")</code>, <code>right_grasp_site</code>", "<code>GetSitePositionMj</code>", "world via the same conversion", "HandError (reach check, watchdog metric), PalmMidY (slip)"],
+  ["Boxes", "All box geoms (type 6) whose body is named <code>lucky_body_&lt;entity id&gt;</code> and has a free joint (<code>ModelNgeom</code>, <code>GetGeomDescriptor</code>, <code>GetBodyNameByIndex</code>, <code>GetBodyFreeJointIndex</code> &lt; <code>ModelNjnt</code>)", "<code>GetGeomPoseMj</code> (centre, rotation), descriptor size = half extents, <code>GetBodyPoseMj</code> velocity, <code>GetBodyMass</code>; <code>UnweldBody</code> once", "world centre; box axes for the grip frame; extents along any direction by the support function", "RestingBox, SetGripFrame, Hold (slip), StepPlace, FreeSlot occupancy, RequiredForce, logs"],
+  ["Hand collision geoms", "Geoms with contype|conaffinity ≠ 0 on <code>&lt;side&gt;_wrist_yaw_link</code> and <code>&lt;side&gt;_hand_*</code> bodies", "<code>GetGeomContactForce</code> (magnitude, against anything)", "tared: Σ max(0, F − baseline)", "ReadForces (Squeeze, StepSqueeze), Tare"],
+  ["Conveyor (ChuteEntity)", "Inspector reference", "Hazel <code>Transform</code>: WorldTranslation, WorldRotationQuat, WorldScale (unit cube)", "normal = rot·Up; top = centre + rot·Up·0.5·sy; long axis = larger of sx/sz", "ChuteGap, FaceOf, StandFor, ReachShort, StepCloser (grasp, and place when CarryToTable ☐)"],
+  ["Table (PlaceTarget)", "Inspector reference (the table top slab)", "Hazel <code>Transform</code> (unit cube)", "top face, near edge, slot line", "FreeSlot, StandFor, FaceOf, StepCloser (place)"],
+  ["Arm actuators", "<code>GetActuator(&lt;side&gt;_shoulder_pitch/roll/yaw_joint, _elbow_joint, _wrist_roll/pitch/yaw_joint)</code>", "sets <code>.IK</code> (shoulders + elbow true, wrists false)", "–", "Begin (once)"],
+  ["IK graph inputs", "Identifiers <code>LeftArm_</code> / <code>RightArm_</code> + <code>Target_Position</code>, <code>Pole_Target</code>, <code>Solve_Orientation</code>, <code>High_Accuracy</code>, <code>Pole_Weight</code>; <code>Duration</code>, <code>Start</code>", "written, never read", "targets and poles in Hazel world coords", "SendHands, Begin, Arm()"],
+  ["Locomotion policies", "<code>WalkerSlotId</code> = 1 walker, <code>RotatorSlotId</code> = 2 rotator", "written: <code>SetFloat</code> 1 SetVx, 2 SetVy, 3 SetYawRate; <code>SetDrivenJoints</code> (legs + waist); <code>SetPolicyActive</code>", "–", "Drive, SetLocomotion (OnCreate, Turn, StepRecover)"],
+]);
+table("checks", ["Check / error", "Formula", "Threshold (default)", "Where", "On failure / stall"], [
+  ["Setup: components", "GetComponent&lt;RobotController/MujocoScene&gt;", "both present", "OnCreate", "Log.Error, script does nothing"],
+  ["Setup: scene parts", "ChuteEntity, PlaceTarget assigned; pelvis body; ≥ 1 free box; every arm actuator, grasp site, shoulder link", "boxes/pelvis may appear late: wait until m_PhaseTime &gt; 2 s", "Begin", "Fail(retry:false) → Recover → Failed"],
+  ["Progress watchdog", "metric &lt; best − minGain resets m_SinceBest", "stalled if m_SinceBest &gt; <code>StallTime</code> (3 s) or m_WatchTime &gt; cap", "Stalled (reset by Advance, NextStep, Turn retry)", "caller's corrective retry (below)"],
+  ["Box resting on the conveyor", "ChuteGap = n·(boxCentre − chuteTop) − HalfExtent(n)", "|gap| &lt; 0.02 m", "RestingBox", "box not picked (status line shows gap)"],
+  ["Box not moving", "BoxSpeed = |v_body|", "&lt; <code>k_RestSpeed</code> 0.02 m/s", "RestingBox", "box not picked"],
+  ["Box reachable from outside the conveyor", "ReachShort = face·(p − StandFor) − StandDistance", "≤ 0.05 m (only with WalkToBox ☑)", "RestingBox, status line", "box not picked"],
+  ["Attempts per box", "m_Fails[box] (++ in Fail; set to max on skip)", "&lt; <code>MaxBoxAttempts</code> (2); reset when BoxSpeed &gt; 0.2 m/s", "Fail, RestingBox", "box skipped until it moves"],
+  ["Walk arrival", "m_ToGo = |flat(goal − pelvis)|", "≤ <code>ArriveTolerance</code> (0.10 m); steer only beyond <code>k_NearRadius</code> 0.4 m, vx only if |err| &lt; 0.6 rad", "WalkTo (WalkToBox, WalkToTable)", "–"],
+  ["Walk speeds", "yaw = clamp(<code>k_YawGain</code> 2·err, ±<code>k_MaxYawRate</code> 1); step = clamp(2·toGo, <code>k_MinStepSpeed</code> 0.1, <code>WalkSpeed</code> 0.3)", "–", "WalkTo", "–"],
+  ["Walk stall", "Stalled(m_ToGo, <code>k_WalkProgress</code> 0.02 m, <code>WalkTimeout</code> 60 s)", "<code>MaxWalkRetries</code> (2) re-turns per goal", "OnUpdate (WalkToBox, WalkToTable) → WalkStalled", "re-turn (FaceBox / TurnToTable); 3rd stall → Fail"],
+  ["Turn skip near goal", "|flat(m_Stand − pelvis)|", "&lt; 0.4 m at step 0", "OnUpdate (FaceBox, TurnToTable)", "turn skipped, walk steps on"],
+  ["Turn arrival", "err = wrap(turnYaw − yaw)", "≤ <code>TurnTolerance</code> (0.1 rad)", "Turn", "–"],
+  ["Turn rate", "sign(err)·clamp(2|err|, min(<code>MinTurnRate</code> 0.2·tries, 0.7), <code>k_TurnRate</code> 0.7)·min(1, t/<code>k_TurnRampIn</code> 0.5)", "–", "Turn", "–"],
+  ["Turn stall", "Stalled(|err|, <code>k_TurnProgress</code> 0.02 rad, <code>PhaseTimeout</code> 15 s)", "&lt; <code>MaxTurnTries</code> (2) tries", "Turn", "retry with higher min rate; then Fail: \"turn stalled … deg short\""],
+  ["Policy swap timing", "settle before / after the rotator; zero commands before swapping back", "<code>k_Settle</code> 0.6 s, <code>k_DecelTime</code> 0.2 s", "Turn, StepRecover, StepReposition, StepPlace", "–"],
+  ["Box too low for the arms", "LowBy(y) = max(shoulder.y) − y − <code>ArmReach</code>", "&gt; 0 (ArmReach 0.50 m)", "EnterPreGrasp (box centre), StepPlace (resting centre)", "grasp: Fail(skip) = box skipped now; place: release where it is"],
+  ["Reach error", "max(|SiteWorld(site) − HandTarget(arm)|)", "≤ <code>ReachTolerance</code> (0.05 m), checked after <code>MoveDuration</code> (0.8 s)", "StepPreGrasp, StepSqueeze step 0; logged in PreGrasp…Release", "Stalled(err, <code>k_ReachProgress</code> 0.005 m, PhaseTimeout) → GraspOutOfReach"],
+  ["Hands already touching", "F_L + F_R", "&gt; <code>k_TouchForce</code> 2 N", "StepSqueeze step 0", "counts as in place → squeeze"],
+  ["Closer stand point", "dist = flat(p − pelvis)·fwd; reach = max(<code>MinStandDistance</code> 0.20, dist − <code>RepositionStep</code> 0.04) if dist ≤ reach + tol; move = |flat(stand − pelvis)|", "m_Repositions &lt; <code>MaxRepositions</code> (3) and move ≥ <code>RepositionTolerance</code> (0.03 m); EdgeClearance kept", "StepCloser (GraspOutOfReach, StepPlace)", "grasp: Fail \"no closer stand point helps\"; place: release"],
+  ["Reposition step", "WalkTo(m_Stand, RepositionTolerance, no steer)", "Stalled(m_ToGo, 0.02 m, PhaseTimeout)", "StepReposition", "warns, reaches / places from where it is (no fail)"],
+  ["Edge clearance", "clear = face·(surfaceCentre − stand) − 0.5·min(sx, sz)", "≥ <code>EdgeClearance</code> (0.15 m)", "StandFor", "stand point pushed back"],
+  ["Grip force", "F_req = <code>GripSafetyFactor</code> 2·m·9.81 / (2·<code>BoxFriction</code> 1)·boost", "both hands ≥ (1 − <code>k_ForceTolFrac</code> 0.35)·F_req for <code>k_GripConfirm</code> 0.5 s", "StepSqueeze step 1", "see squeeze stall"],
+  ["Squeeze stall", "stuck = a hand &lt; min with Gap ≤ 0.001 − 0.03 m; !stuck resets m_SinceBest", "m_SinceBest &gt; StallTime (3 s) or m_WatchTime &gt; PhaseTimeout (15 s)", "StepSqueeze → RetrySqueeze", "reopen + re-centre; after <code>MaxSqueezeTries</code> (3) squeezes Fail: \"grip too weak\""],
+  ["Palm gap (squeeze admittance)", "Gap −= clamp(<code>k_DepthGain</code> 0.002·(F_req − F), ±<code>k_MaxSqueezeRate</code> 0.02)·dt", "Gap ∈ [−<code>k_MaxSqueezeDepth</code> 0.03, <code>HandStandoff</code> 0.03]", "Squeeze (every holding frame)", "–"],
+  ["Slip", "PalmMidY − boxY − Y0", "&gt; <code>k_SlipTol</code> 0.01 m: boost (max 2×); &gt; <code>k_DropTol</code> 0.05 m", "Hold (Holding, Lift, PullIn, carry phases, Reposition while carrying, Place)", "Fail: \"box slipped out of the hands\""],
+  ["Lift / carry", "m_Lift += <code>k_LiftSpeed</code> 0.05·dt; box moves at <code>k_CarrySpeed</code> 0.1 m/s", "≤ <code>LiftHeight</code> (0.08 m); PullIn to <code>CarryOffset</code>", "StepLift, OnUpdate (PullIn), StepPlace step 1", "–"],
+  ["Slot free", "no other box within PlaceSpacing/2 (flat) and 0.3 m (height)", "<code>PlaceSpacing</code> 0.25 m, <code>PlaceEdgeInset</code> 0.12 m", "FreeSlot", "Fail(retry:false): \"the table is full\" → Failed"],
+  ["Touchdown", "above = boxY − (slot.Y + halfH), lowering at <code>k_PlaceLowerSpeed</code> 0.03 m/s from <code>k_PlaceHover</code> 0.05 m", "above ≤ 0.02 m, or commanded centre 0.02 m below the box", "StepPlace step 2", "above &gt; 0.02: step closer (Reposition) or release, logged"],
+  ["Release / retract", "Gap += <code>k_OpenSpeed</code> 0.05·dt", "≤ <code>k_ReleaseGap</code> 0.05 m; <code>k_ReleaseTime</code> 1.5 s; hands up <code>k_RetractUp</code> 0.10 m, then fold after 2·MoveDuration", "StepRelease, StepRetract", "–"],
+  ["Recover", "fold; rotator off after 0.2 s", "wait max(MoveDuration, 0.6 s)", "StepRecover", "FindBox if retry &amp;&amp; RepeatLoop, else Failed"],
+]);
+</script>
+</body>
+</html>

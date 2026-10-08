@@ -1,0 +1,227 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1620 1075" width="1620" height="1075" font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">
+<title>G1BoxGrasp phase loop</title>
+<style>
+:root{--bg:#f7f8fa;--lane:#eef1f5;--node:#ffffff;--stroke:#3b4252;--text:#1f2430;--muted:#5b6475;
+--go:#3b4252;--gate:#7c3aed;--retry:#d97706;--loop:#059669;--fail:#dc2626;--failbg:#fdecec;--badge:#e5e9f0}
+@media (prefers-color-scheme: dark){:root{--bg:#14171c;--lane:#1b1f26;--node:#222730;--stroke:#aab3c2;--text:#e6e9ef;--muted:#9aa3b2;
+--go:#c3cad6;--gate:#a78bfa;--retry:#f59e0b;--loop:#34d399;--fail:#f87171;--failbg:#2a1b1d;--badge:#323946}}
+.bg{fill:var(--bg)} .lane{fill:var(--lane)} .node{fill:var(--node);stroke:var(--stroke);stroke-width:1.4}
+.t{fill:var(--text);font-size:14px;font-weight:700} .s{fill:var(--muted);font-size:10.5px} .g{fill:var(--gate);font-size:10.5px}
+.lbl{font-size:10.5px} .lane-t{fill:var(--muted);font-size:12px;font-weight:700;letter-spacing:.06em}
+.e{fill:none;stroke-width:1.6} .go{stroke:var(--go)} .gate{stroke:var(--gate)} .retry,.retryStub{stroke:var(--retry);stroke-dasharray:6 4}
+.loop{stroke:var(--loop);stroke-width:2.2} .fail{stroke:var(--fail)}
+.Lgo{fill:var(--go)} .Lgate{fill:var(--gate)} .Lretry{fill:var(--retry)} .Lloop{fill:var(--loop)} .Lfail{fill:var(--fail)}
+.band{fill:var(--failbg);stroke:var(--fail);stroke-width:1.4} .ft{fill:var(--fail);font-size:12px;font-weight:700} .fs{fill:var(--text);font-size:10.5px}
+.badge{fill:var(--badge)} .bt{fill:var(--text);font-size:8.5px;font-weight:700} .h{fill:var(--text);font-size:18px;font-weight:700}
+.p{fill:var(--text);font-size:11px} .ph{fill:var(--text);font-size:12px;font-weight:700} .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10.5px;fill:var(--text)}
+</style>
+<defs><marker id="a-go" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="Lgo"/></marker><marker id="a-gate" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="Lgate"/></marker><marker id="a-retry" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="Lretry"/></marker><marker id="a-loop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="Lloop"/></marker><marker id="a-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="Lfail"/></marker></defs>
+<rect class="bg" width="1620" height="1075"/>
+<rect class="lane" x="10" y="40" width="280" height="830" rx="10"/>
+<text class="lane-t" x="150" y="862" text-anchor="middle">1 · FIND &amp; APPROACH</text>
+<rect class="lane" x="310" y="40" width="280" height="830" rx="10"/>
+<text class="lane-t" x="450" y="862" text-anchor="middle">2 · GRASP</text>
+<rect class="lane" x="610" y="40" width="280" height="830" rx="10"/>
+<text class="lane-t" x="750" y="862" text-anchor="middle">3 · CARRY</text>
+<rect class="lane" x="910" y="40" width="280" height="830" rx="10"/>
+<text class="lane-t" x="1050" y="862" text-anchor="middle">4 · PLACE</text>
+<path class="e go" d="M150,165 L150,230" marker-end="url(#a-go)"/>
+<path class="e gate" d="M150,300 L150,365" marker-end="url(#a-gate)"/>
+<path class="e gate" d="M255,245 L270,245 L270,195 L345,195" marker-end="url(#a-gate)"/>
+<path class="e go" d="M150,435 L150,500" marker-end="url(#a-go)"/>
+<path class="e go" d="M150,570 L150,635" marker-end="url(#a-go)"/>
+<path class="e retry" d="M255,545 C285,545 285,410 255,410" marker-end="url(#a-retry)"/>
+<path class="e go" d="M255,670 L295,670 L295,220 L345,220" marker-end="url(#a-go)"/>
+<path class="e go" d="M450,235 L450,310" marker-end="url(#a-go)"/>
+<path class="e go" d="M450,380 L450,455" marker-end="url(#a-go)"/>
+<path class="e gate" d="M450,525 L450,600" marker-end="url(#a-gate)"/>
+<path class="e retry" d="M345,500 C312,500 312,360 345,360" marker-end="url(#a-retry)"/>
+<path class="e gate" d="M555,635 L625,635 L625,280 L645,280" marker-end="url(#a-gate)"/>
+<path class="e go" d="M750,300 L750,365" marker-end="url(#a-go)"/>
+<path class="e go" d="M750,435 L750,500" marker-end="url(#a-go)"/>
+<path class="e go" d="M750,570 L750,635" marker-end="url(#a-go)"/>
+<path class="e retry" d="M855,545 C885,545 885,410 855,410" marker-end="url(#a-retry)"/>
+<path class="e gate" d="M750,705 L750,765" marker-end="url(#a-gate)"/>
+<path class="e gate" d="M855,670 L915,670 L915,285 L945,285" marker-end="url(#a-gate)"/>
+<path class="e go" d="M1050,300 L1050,410" marker-end="url(#a-go)"/>
+<path class="e go" d="M1050,480 L1050,590" marker-end="url(#a-go)"/>
+<path class="e gate" d="M1050,660 L1050,765" marker-end="url(#a-gate)"/>
+<path class="e loop" d="M1155,625 L1200,625 L1200,22 L28,22 L28,265 L45,265" marker-end="url(#a-loop)"/>
+<path class="e retry" d="M1050,230 L1050,130 L855,130" marker-end="url(#a-retry)"/>
+<path class="e retry" d="M810,95 L810,62 L1090,62 L1090,230" marker-end="url(#a-retry)"/>
+<path class="e fail" d="M450,950 L450,975" marker-end="url(#a-fail)"/>
+<path class="e fail" d="M345,1010 L12,1010 L12,280 L45,280" marker-end="url(#a-fail)"/>
+<path class="e fail" d="M555,1010 L645,1010" marker-end="url(#a-fail)"/>
+<text class="lbl Lgo" x="158" y="202" text-anchor="start">scene ready</text>
+<text class="lbl Lgate" x="158" y="337" text-anchor="start">WalkToBox ✓</text>
+<text class="lbl Lgate" x="310" y="188" text-anchor="middle">WalkToBox ✗</text>
+<text class="lbl Lgo" x="158" y="466" text-anchor="start">facing</text>
+<text class="lbl Lgo" x="158" y="607" text-anchor="start">arrived</text>
+<text class="lbl Lretry" x="158" y="486" text-anchor="start">stalled → re-turn</text>
+<text class="lbl Lgo" x="290" y="480" text-anchor="middle" transform="rotate(-90 290 480)">squared up → EnterReady</text>
+<text class="lbl Lgo" x="458" y="278" text-anchor="start">pose reached</text>
+<text class="lbl Lgo" x="458" y="423" text-anchor="start">in place ≤ ReachTolerance</text>
+<text class="lbl Lgate" x="458" y="568" text-anchor="start">grip held 0.5 s · LiftBox ✓</text>
+<text class="lbl Lgate" x="619" y="450" text-anchor="middle" transform="rotate(-90 619 450)">CarryToTable ✓</text>
+<text class="lbl Lgo" x="758" y="337" text-anchor="start">at CarryOffset</text>
+<text class="lbl Lgo" x="758" y="472" text-anchor="start">facing</text>
+<text class="lbl Lgo" x="758" y="607" text-anchor="start">arrived</text>
+<text class="lbl Lretry" x="893" y="478" text-anchor="middle" transform="rotate(90 893 478)">stalled: re-turn</text>
+<text class="lbl Lgate" x="758" y="740" text-anchor="start">PlaceBox ✗</text>
+<text class="lbl Lgate" x="922" y="560" text-anchor="middle" transform="rotate(90 922 560)">PlaceBox ✓</text>
+<text class="lbl Lgo" x="1058" y="360" text-anchor="start">touchdown (or lowest reach)</text>
+<text class="lbl Lgo" x="1058" y="540" text-anchor="start">after 1.5 s</text>
+<text class="lbl Lgate" x="1058" y="715" text-anchor="start">RepeatLoop ✗</text>
+<text class="lbl Lloop" x="620" y="15" text-anchor="middle">RepeatLoop ✓ → next box</text>
+<text class="lbl Lretry" x="952" y="145" text-anchor="middle">can&#x27;t lower: StepCloser</text>
+<text class="lbl Lretry" x="952" y="55" text-anchor="middle">(carrying) → Place</text>
+<text class="lbl Lfail" x="178" y="1003" text-anchor="middle">retry &amp;&amp; RepeatLoop → next box</text>
+<text class="lbl Lfail" x="600" y="1003" text-anchor="middle">no retry</text>
+<text class="lbl Lretry" x="292" y="560">RetrySqueeze:</text><text class="lbl Lretry" x="292" y="573">reopen beside</text><text class="lbl Lretry" x="292" y="586">≤ MaxSqueezeTries</text>
+<rect class="node" x="45" y="95" width="210" height="70" rx="9"/>
+<text class="t" x="150" y="114" text-anchor="middle">Start</text>
+<text class="s" x="150" y="130" text-anchor="middle">Begin(): pelvis, boxes, IK arms,</text>
+<text class="s" x="150" y="143" text-anchor="middle">wrists + thumb/finger bases</text>
+<rect class="node" x="45" y="230" width="210" height="70" rx="9"/>
+<text class="t" x="150" y="249" text-anchor="middle">FindBox</text>
+<text class="s" x="150" y="265" text-anchor="middle">nearest box resting on the belt,</text>
+<text class="s" x="150" y="278" text-anchor="middle">not failed MaxBoxAttempts</text>
+<rect class="node" x="45" y="365" width="210" height="70" rx="9"/>
+<text class="t" x="150" y="384" text-anchor="middle">FaceBox</text>
+<text class="s" x="150" y="400" text-anchor="middle">Turn() toward the stand point</text>
+<text class="s" x="150" y="413" text-anchor="middle">(skipped within 0.4 m)</text>
+<rect class="badge" x="49" y="357" width="38" height="14" rx="7"/><text class="bt" x="68.0" y="367.5" text-anchor="middle">TURN</text>
+<rect class="node" x="45" y="500" width="210" height="70" rx="9"/>
+<text class="t" x="150" y="519" text-anchor="middle">WalkToBox</text>
+<text class="s" x="150" y="535" text-anchor="middle">WalkTo(stand) · watchdog</text>
+<text class="s" x="150" y="548" text-anchor="middle">StallTime / WalkTimeout</text>
+<rect class="badge" x="49" y="492" width="40" height="14" rx="7"/><text class="bt" x="69.0" y="502.5" text-anchor="middle">WALK</text>
+<rect class="node" x="45" y="635" width="210" height="70" rx="9"/>
+<text class="t" x="150" y="654" text-anchor="middle">FaceChute</text>
+<text class="s" x="150" y="670" text-anchor="middle">Turn() square to the belt</text>
+<rect class="badge" x="49" y="627" width="38" height="14" rx="7"/><text class="bt" x="68.0" y="637.5" text-anchor="middle">TURN</text>
+<rect class="node" x="345" y="165" width="210" height="70" rx="9"/>
+<text class="t" x="450" y="184" text-anchor="middle">Ready</text>
+<text class="s" x="450" y="200" text-anchor="middle">body still → arms bend to the ready pose</text>
+<text class="s" x="450" y="213" text-anchor="middle">(inspector angles, BendDuration)</text>
+<rect class="badge" x="349" y="157" width="44" height="14" rx="7"/><text class="bt" x="371.0" y="167.5" text-anchor="middle">TRACK</text>
+<rect class="node" x="345" y="310" width="210" height="70" rx="9"/>
+<text class="t" x="450" y="329" text-anchor="middle">PreGrasp</text>
+<text class="s" x="450" y="345" text-anchor="middle">over the corners · tare · straight down;</text>
+<text class="s" x="450" y="358" text-anchor="middle">placed in box frame · short: grip higher</text>
+<rect class="badge" x="349" y="302" width="38" height="14" rx="7"/><text class="bt" x="368.0" y="312.5" text-anchor="middle">PATH</text>
+<rect class="badge" x="391" y="302" width="44" height="14" rx="7"/><text class="bt" x="413.0" y="312.5" text-anchor="middle">TRACK</text>
+<rect class="node" x="345" y="455" width="210" height="70" rx="9"/>
+<text class="t" x="450" y="474" text-anchor="middle">Squeeze</text>
+<text class="s" x="450" y="490" text-anchor="middle">thumbs onto the front face, fingers</text>
+<text class="s" x="450" y="503" text-anchor="middle">curl in + arms close until F_req held</text>
+<text class="g" x="450" y="516" text-anchor="middle">LiftBox ✗ → Release / Holding</text>
+<rect class="badge" x="349" y="447" width="38" height="14" rx="7"/><text class="bt" x="368.0" y="457.5" text-anchor="middle">HOLD</text>
+<rect class="badge" x="391" y="447" width="44" height="14" rx="7"/><text class="bt" x="413.0" y="457.5" text-anchor="middle">TRACK</text>
+<rect class="node" x="345" y="600" width="210" height="70" rx="9"/>
+<text class="t" x="450" y="619" text-anchor="middle">Lift</text>
+<text class="s" x="450" y="635" text-anchor="middle">raise LiftHeight, slip check,</text>
+<text class="s" x="450" y="648" text-anchor="middle">grip frame → pelvis coords</text>
+<text class="g" x="450" y="661" text-anchor="middle">CarryToTable ✗ → Place / Holding</text>
+<rect class="badge" x="349" y="592" width="38" height="14" rx="7"/><text class="bt" x="368.0" y="602.5" text-anchor="middle">HOLD</text>
+<rect class="node" x="645" y="95" width="210" height="70" rx="9"/>
+<text class="t" x="750" y="114" text-anchor="middle">Reposition</text>
+<text class="s" x="750" y="130" text-anchor="middle">placing only: WalkTo(closer stand),</text>
+<text class="s" x="750" y="143" text-anchor="middle">no turn, settle 0.6 s</text>
+<rect class="badge" x="649" y="87" width="40" height="14" rx="7"/><text class="bt" x="669.0" y="97.5" text-anchor="middle">WALK</text>
+<rect class="badge" x="693" y="87" width="38" height="14" rx="7"/><text class="bt" x="712.0" y="97.5" text-anchor="middle">HOLD</text>
+<rect class="node" x="645" y="230" width="210" height="70" rx="9"/>
+<text class="t" x="750" y="249" text-anchor="middle">PullIn</text>
+<text class="s" x="750" y="265" text-anchor="middle">box → CarryOffset (chest)</text>
+<rect class="badge" x="649" y="222" width="38" height="14" rx="7"/><text class="bt" x="668.0" y="232.5" text-anchor="middle">HOLD</text>
+<rect class="node" x="645" y="365" width="210" height="70" rx="9"/>
+<text class="t" x="750" y="384" text-anchor="middle">TurnToTable</text>
+<text class="s" x="750" y="400" text-anchor="middle">FreeSlot() picked;</text>
+<text class="s" x="750" y="413" text-anchor="middle">Turn() toward its stand point</text>
+<rect class="badge" x="649" y="357" width="38" height="14" rx="7"/><text class="bt" x="668.0" y="367.5" text-anchor="middle">TURN</text>
+<rect class="badge" x="691" y="357" width="38" height="14" rx="7"/><text class="bt" x="710.0" y="367.5" text-anchor="middle">HOLD</text>
+<rect class="node" x="645" y="500" width="210" height="70" rx="9"/>
+<text class="t" x="750" y="519" text-anchor="middle">WalkToTable</text>
+<text class="s" x="750" y="535" text-anchor="middle">WalkTo(stand) · watchdog</text>
+<rect class="badge" x="649" y="492" width="40" height="14" rx="7"/><text class="bt" x="669.0" y="502.5" text-anchor="middle">WALK</text>
+<rect class="badge" x="693" y="492" width="38" height="14" rx="7"/><text class="bt" x="712.0" y="502.5" text-anchor="middle">HOLD</text>
+<rect class="node" x="645" y="635" width="210" height="70" rx="9"/>
+<text class="t" x="750" y="654" text-anchor="middle">FaceTable</text>
+<text class="s" x="750" y="670" text-anchor="middle">Turn() square to the table</text>
+<rect class="badge" x="649" y="627" width="38" height="14" rx="7"/><text class="bt" x="668.0" y="637.5" text-anchor="middle">TURN</text>
+<rect class="badge" x="691" y="627" width="38" height="14" rx="7"/><text class="bt" x="710.0" y="637.5" text-anchor="middle">HOLD</text>
+<rect class="node" x="645" y="765" width="210" height="70" rx="9"/>
+<text class="t" x="750" y="784" text-anchor="middle">Holding</text>
+<text class="s" x="750" y="800" text-anchor="middle">test end state:</text>
+<text class="s" x="750" y="813" text-anchor="middle">keep squeezing</text>
+<rect class="badge" x="649" y="757" width="38" height="14" rx="7"/><text class="bt" x="668.0" y="767.5" text-anchor="middle">HOLD</text>
+<rect class="node" x="945" y="230" width="210" height="70" rx="9"/>
+<text class="t" x="1050" y="249" text-anchor="middle">Place</text>
+<text class="s" x="1050" y="265" text-anchor="middle">0 settle → world frame</text>
+<text class="s" x="1050" y="278" text-anchor="middle">1 over the slot · 2 lower to touchdown</text>
+<rect class="badge" x="949" y="222" width="38" height="14" rx="7"/><text class="bt" x="968.0" y="232.5" text-anchor="middle">HOLD</text>
+<rect class="node" x="945" y="410" width="210" height="70" rx="9"/>
+<text class="t" x="1050" y="429" text-anchor="middle">Release</text>
+<text class="s" x="1050" y="445" text-anchor="middle">open to ReleaseGap, 1.5 s</text>
+<rect class="node" x="945" y="590" width="210" height="70" rx="9"/>
+<text class="t" x="1050" y="609" text-anchor="middle">Retract</text>
+<text class="s" x="1050" y="625" text-anchor="middle">hands up 10 cm, then fold</text>
+<text class="s" x="1050" y="638" text-anchor="middle">(along the safe path)</text>
+<rect class="badge" x="949" y="582" width="38" height="14" rx="7"/><text class="bt" x="968.0" y="592.5" text-anchor="middle">PATH</text>
+<rect class="node" x="945" y="765" width="210" height="70" rx="9"/>
+<text class="t" x="1050" y="784" text-anchor="middle">Done</text>
+<text class="s" x="1050" y="800" text-anchor="middle">stand, arms folded</text>
+<rect class="node" x="345" y="975" width="210" height="70" rx="9"/>
+<text class="t" x="450" y="994" text-anchor="middle">Recover</text>
+<text class="s" x="450" y="1010" text-anchor="middle">rotator → walker (decel),</text>
+<text class="s" x="450" y="1023" text-anchor="middle">fold arms, count the attempt</text>
+<rect class="badge" x="349" y="967" width="38" height="14" rx="7"/><text class="bt" x="368.0" y="977.5" text-anchor="middle">PATH</text>
+<rect class="node" x="645" y="975" width="210" height="70" rx="9"/>
+<text class="t" x="750" y="994" text-anchor="middle">Failed</text>
+<text class="s" x="750" y="1010" text-anchor="middle">stand, arms folded</text>
+<rect class="band" x="40" y="880" width="1150" height="70" rx="10"/>
+<text class="ft" x="56" y="898">Fail(reason) from any phase → Recover   (counts against the box; MaxBoxAttempts → skip it until it moves)</text>
+<text class="fs" x="56" y="915">Start: missing ChuteEntity / PlaceTarget, pelvis, boxes, actuator, site, wrist link → stop (no retry)</text>
+<text class="fs" x="631" y="915">GraspOutOfReach: no higher grip left</text>
+<text class="fs" x="56" y="929">Track: box gone (&gt; 0.25 m from the reach start, or off the belt)</text>
+<text class="fs" x="631" y="929">RetrySqueeze: grip too weak after MaxSqueezeTries</text>
+<text class="fs" x="56" y="943">Hold: box slipped &gt; 5 cm  ·  WalkStalled: &gt; MaxWalkRetries  ·  Turn: stalled after MaxTurnTries  ·  table full → stop</text>
+<text class="h" x="1240" y="62">G1BoxGrasp phase loop</text>
+<text class="p" x="1240" y="82">g1_grasp.cs · every Advance / Enter / Fail edge</text>
+<path class="e go" d="M1240,112 L1286,112" marker-end="url(#a-go)"/><text class="p" x="1296" y="116">advance</text>
+<path class="e gate" d="M1240,134 L1286,134" marker-end="url(#a-gate)"/><text class="p" x="1296" y="138">Phases checkbox gate</text>
+<path class="e retry" d="M1240,156 L1286,156" marker-end="url(#a-retry)"/><text class="p" x="1296" y="160">retry / corrective</text>
+<path class="e loop" d="M1240,178 L1286,178" marker-end="url(#a-loop)"/><text class="p" x="1296" y="182">repeat for the next box</text>
+<path class="e fail" d="M1240,200 L1286,200" marker-end="url(#a-fail)"/><text class="p" x="1296" y="204">Fail(reason) → Recover</text>
+<text class="p" x="1240" y="228">badges:</text>
+<rect class="badge" x="1290" y="217" width="38" height="14" rx="7"/><text class="bt" x="1309.0" y="227.5" text-anchor="middle">PATH</text>
+<rect class="badge" x="1333" y="217" width="44" height="14" rx="7"/><text class="bt" x="1355.0" y="227.5" text-anchor="middle">TRACK</text>
+<rect class="badge" x="1382" y="217" width="38" height="14" rx="7"/><text class="bt" x="1401.0" y="227.5" text-anchor="middle">HOLD</text>
+<rect class="badge" x="1425" y="217" width="38" height="14" rx="7"/><text class="bt" x="1444.0" y="227.5" text-anchor="middle">TURN</text>
+<rect class="badge" x="1468" y="217" width="40" height="14" rx="7"/><text class="bt" x="1488.0" y="227.5" text-anchor="middle">WALK</text>
+<text class="ph" x="1240" y="266">Every frame (OnUpdate)</text>
+<text class="mono" x="1246" y="283" xml:space="preserve">Drive(0,0,0) unless the phase walks / turns</text>
+<text class="mono" x="1246" y="300" xml:space="preserve">phase step (switch on m_Phase)</text>
+<text class="mono" x="1246" y="317" xml:space="preserve">OrientWrists: palms face the box (servo),</text>
+<text class="mono" x="1246" y="334" xml:space="preserve">   held while a hand climbs out of a low spot</text>
+<text class="mono" x="1246" y="351" xml:space="preserve">PoseHands: thumbs swing, fingers curl (rated)</text>
+<text class="mono" x="1246" y="368" xml:space="preserve">LogStatus every LogInterval s</text>
+<text class="ph" x="1240" y="393">Inner loops inside phases</text>
+<text class="mono" x="1246" y="410" xml:space="preserve">PATH   min-jerk segments: up to the safe</text>
+<text class="mono" x="1246" y="427" xml:space="preserve">       height, across, down (HandMoveSpeed)</text>
+<text class="mono" x="1246" y="444" xml:space="preserve">TRACK  hands follow the box until the first</text>
+<text class="mono" x="1246" y="461" xml:space="preserve">       touch; &gt; 2 cm moves logged</text>
+<text class="mono" x="1246" y="478" xml:space="preserve">HOLD   squeeze admittance + slip boost;</text>
+<text class="mono" x="1246" y="495" xml:space="preserve">       slip &gt; 5 cm → Fail</text>
+<text class="mono" x="1246" y="512" xml:space="preserve">TURN   settle → rotator ramp-in P-turn →</text>
+<text class="mono" x="1246" y="529" xml:space="preserve">       decel → walker → settle; stall → harder</text>
+<text class="mono" x="1246" y="546" xml:space="preserve">WALK   steer far, step holonomic &lt; 0.4 m</text>
+<text class="mono" x="1246" y="563" xml:space="preserve">Stalled(): no progress for StallTime (3 s)</text>
+<text class="mono" x="1246" y="580" xml:space="preserve">   or PhaseTimeout (15 s) → retry / Fail</text>
+<text class="ph" x="1240" y="607">Phases checkboxes (inspector):</text>
+<text class="g" x="1240" y="624">WalkToBox ✗  grasp from where it stands</text>
+<text class="g" x="1240" y="641">LiftBox ✗  open again after the grip</text>
+<text class="g" x="1240" y="658">CarryToTable ✗  put it back where picked</text>
+<text class="g" x="1240" y="675">PlaceBox ✗  keep holding (Holding)</text>
+<text class="g" x="1240" y="692">RepeatLoop ✗  stop after one box / failure</text>
+</svg>

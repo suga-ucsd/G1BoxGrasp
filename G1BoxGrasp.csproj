@@ -1,0 +1,18 @@
+<!-- Editor/LSP project only: lets OmniSharp resolve Hazel types. The engine builds its own csproj. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EngineAssets>$(HOME)/Documents/LuckyEngine/Projects/g1_sort/Assets</EngineAssets>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Hazel-ScriptCore"><HintPath>$(EngineAssets)/Scripts/Binaries/Hazel-ScriptCore.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Coral.Managed"><HintPath>$(EngineAssets)/Scripts/Binaries/Coral.Managed.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="*.cs" />
+    <Compile Include="$(EngineAssets)/Scripts/Source/Generated/*.cs" />
+  </ItemGroup>
+</Project>
