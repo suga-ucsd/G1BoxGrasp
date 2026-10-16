@@ -5,7 +5,7 @@ using Hazel;
 namespace G1Pipe
 {
     // Picks up each box resting on the conveyor with both hands, places it on the table to the left, and comes back for the next.
-    // FindBox -> FaceBox -> WalkToBox -> FaceChute -> PreGrasp -> Squeeze -> Lift -> PullIn -> TurnToTable -> WalkToTable -> FaceTable -> Place -> Release -> Retract -> FindBox ...
+    // FindBox -> FaceBox -> WalkToBox -> FaceChute -> Approach -> Ready -> PreGrasp -> Squeeze -> Lift -> PullIn -> TurnToTable -> WalkToTable -> FaceTable -> Place -> Release -> Retract -> FindBox ...
     // The "Phases" checkboxes switch groups of phases off for testing. Every phase has a progress watchdog: a stall triggers a corrective
     // retry (step closer, re-squeeze, re-turn); when those run out the attempt fails (Recover) and the next box is tried; a box that fails
     // MaxBoxAttempts times is skipped until it moves.
@@ -18,6 +18,7 @@ namespace G1Pipe
             FaceBox,
             WalkToBox,
             FaceChute,
+            Approach,
             Ready,
             PreGrasp,
             Squeeze,
@@ -32,6 +33,7 @@ namespace G1Pipe
             Release,
             Retract,
             Recover,
+            WalkerTest,
             Done,
             Failed,
         }
@@ -62,6 +64,7 @@ namespace G1Pipe
             public float ThumbForce,
                 PalmForce; // tared thumb contact force on the front face; palm-only share of Force (N)
             public bool PalmOn; // the palm has reached its face in this grip (fingers may curl)
+            public bool Capped; // its IK target is being pulled in to k_MaxReach of the shoulder
             public float Thumb,
                 Curl; // thumb swing back from straight, index + middle curl (rad; right hand mirrored)
             public Vector3 Cmd,
@@ -130,7 +133,7 @@ namespace G1Pipe
             k_MaxSqueezeRate = 0.02f,
             k_MaxSqueezeDepth = 0.03f; // squeeze admittance: m/(N*s), m/s, m
         private const float k_SqueezeMargin = 1.25f,
-            k_GripConfirm = 0.5f; // palms press toward this x the required force; grip OK: both palms >= the required force for 0.5 s
+            k_GripConfirm = 0.5f; // palms press toward this x the required force; grip OK: both palms on their faces and each hand (palm + fingers) >= the required force for 0.5 s
         private const float k_TouchForce = 2f; // N, a hand this loaded is already at the box
         private const float k_LiftSpeed = 0.05f,
             k_SlipTol = 0.01f,
@@ -153,12 +156,34 @@ namespace G1Pipe
         private const float k_Snap = 0.05f,
             k_LocalMove = 0.10f,
             k_SafeMargin = 0.10f; // m: target tracked directly within this; shorter moves across go straight; travel height over belt and boxes
+        private const float k_FoldSmooth = 0.8f,
+            k_BoxNear = 0.35f; // s lag of a folded hand behind its (swaying, body-relative) fold point; m, hands this close to a box take the safe climb
         private const float k_MinSegment = 0.5f,
             k_SeedBlend = 0.5f; // s shortest path segment; s IK re-seed blend (eases any change of arm pose)
         private const float k_PalmHalf = 0.044f,
             k_SiteOffset = 0.01f; // m (MJCF): palm half-height about the wrist axis; grasp site below (left) / above (right) it
         private const float k_StillSpeed = 0.05f,
-            k_StillWait = 1f; // a reach starts once the pelvis is under this m/s (or after this many s)
+            k_StillTime = 0.5f,
+            k_StillLog = 4f,
+            k_HandLever = 0.45f; // body still: hands carried under this m/s for this many s straight; s between "waiting" lines; m pelvis -> hands
+
+        // Approach (lining the body up with the box), from the walker test: smallest commands that step (side 0.4, forward 0.6, back 0.4 m/s)
+        // move ~10-20 cm per 0.25 s burst after coasting ~1 s; a 2 rad/s turn command turns in place (~57 deg/s, ~2 deg coast).
+        private const float k_AlignYaw = 0.14f,
+            k_TurnStop = 0.1f,
+            k_TurnCmd = 2f,
+            k_TurnMax = 3f; // rad facing tolerance; rad short of the aim a turn stops (coast); rad/s turn command; s longest turn
+        private const float k_AlignSide = 0.06f,
+            k_AlignFwd = 0.05f; // m: box centre off the straight-ahead line; front face off FaceDistance
+        private const float k_SideCmd = 0.4f,
+            k_FwdCmd = 0.6f,
+            k_BackCmd = 0.4f,
+            k_Burst = 0.25f,
+            k_LongBurst = 0.5f,
+            k_ApCoast = 1.5f; // m/s burst commands; s burst (long one when far off); s to coast to a stop before measuring again
+        private const int k_MaxMoves = 12; // approach corrections per attempt before reaching from where the body is
+        private const float k_PlanReach = 0.93f,
+            k_MaxReach = 0.95f; // share of the arm every hand target of a reach must lie within (else the attempt fails); hard cap on any IK target
         private const float k_ArmLength = 0.517f,
             k_Comfort = 0.85f; // m shoulder -> grasp site at full stretch (MJCF); share of it the grip is planned for
         private static readonly float[] s_Mirror = { 1f, -1f, -1f, 1f, -1f, 1f, -1f }; // right arm joint = left x this (pitch, roll, yaw, elbow, wrist roll, pitch, yaw; MJCF)
@@ -188,6 +213,9 @@ namespace G1Pipe
         [Group("Phases")]
         public bool RepeatLoop = true; // after a box or a failure, go for the next one (off: stop)
 
+        [Group("Phases")]
+        public bool WalkerTest = false; // no grasp: measure the walker and rotator - a fixed list of commands, 2 s each, logging how far the body really moved and turned
+
         [Group("Walk")]
         public float WalkSpeed = 0.3f; // m/s
 
@@ -205,6 +233,9 @@ namespace G1Pipe
 
         [Group("Walk")]
         public float TurnTolerance = 0.1f; // rad, a turn is done within this
+
+        [Group("Walk")]
+        public float FaceDistance = 0.27f; // m, pelvis -> box front face the body lines up to (centred on the box, facing it square) before reaching
 
         [Group("Walk")]
         public float MinTurnRate = 0.2f; // rad/s, smallest yaw rate sent while turning (rotator deadband)
@@ -237,7 +268,7 @@ namespace G1Pipe
         public Vector3 CarryOffset = new Vector3(0.30f, 0.10f, 0f); // box centre while carrying, from the pelvis: (forward, up, left)
 
         [Group("Ready Pose")]
-        public float ShoulderPitch = 0f; // deg, left arm (right mirrored); - swings the arm forward and up
+        public float ShoulderPitch = -30f; // deg, left arm (right mirrored); - swings the arm forward and up (-30 with Elbow -20: whole hand >= 0.19 m over the pelvis, clear of the box top)
 
         [Group("Ready Pose")]
         public float ShoulderRoll = 0f; // deg, + swings the arm out to the side
@@ -246,7 +277,7 @@ namespace G1Pipe
         public float ShoulderYaw = 0f; // deg, + turns the forearm outward
 
         [Group("Ready Pose")]
-        public float Elbow = 0f; // deg, 0 = bent 90 deg (forearm level, forward); + straightens it down, - bends it up
+        public float Elbow = -20f; // deg, 0 = bent 90 deg (forearm level, forward); + straightens it down, - bends it up
 
         [Group("Ready Pose")]
         public float WristRoll = 0f; // deg, 0 = palms facing each other; + turns the palm down
@@ -358,6 +389,42 @@ namespace G1Pipe
             m_SqueezeTries; // retries used in the current turn / walk goal / reach / grip
         private float m_Reach; // m, current pelvis -> box (or slot) stand distance; shrinks on failed reaches
         private bool m_Retry; // Recover goes back for the next box (else stops)
+        private float m_Still; // s the body has been still without a break (BodyMotion under k_StillSpeed)
+        private int m_Moves; // approach corrections made for the current attempt
+        private Vector3 m_ApCmd; // approach: command of the current correction (vx, vy, yaw rate)
+        private float m_ApTime,
+            m_ApTurnTo; // approach: s the command runs; heading a turn aims at
+        private int m_TestIdx; // walker test: command being measured
+        private Vector3 m_TestFrom,
+            m_TestFootL,
+            m_TestFootR; // walker test: pelvis and feet (ankle roll links) when the command started
+        private float m_TestYaw; // walker test: heading when the command started
+
+        // Walker test commands: (rotator?, vx, vy, yaw rate, s sent). Short bursts at the smallest commands that step (each followed by its
+        // reverse), right turns with the walker (alone and with a side step), then left turns in place at three rates.
+        private static readonly (bool Rot, float Vx, float Vy, float Yaw, float T)[] s_WalkerTests =
+        {
+            (false, -0.4f, 0f, 0f, 0.25f),
+            (false, 0.6f, 0f, 0f, 0.25f),
+            (false, -0.4f, 0f, 0f, 0.5f),
+            (false, 0.6f, 0f, 0f, 0.5f),
+            (false, 0f, -0.4f, 0f, 0.25f),
+            (false, 0f, 0.4f, 0f, 0.25f),
+            (false, 0f, -0.4f, 0f, 0.5f),
+            (false, 0f, 0.4f, 0f, 0.5f),
+            (false, 0f, 0f, -1.5f, 2f),
+            (false, 0f, 0f, -2f, 2f),
+            (false, 0f, -0.4f, -1f, 1f),
+            (false, 0f, 0.4f, -1f, 1f),
+            (false, 0f, 0f, 0.6f, 2f),
+            (false, 0f, 0f, 1f, 2f),
+            (false, 0f, 0f, 1.5f, 2f),
+        };
+        private const float k_TestSettle = 2f,
+            k_TestCoast = 1.5f,
+            k_TestWait = 10f; // walker test: s still before each command (waited for at most k_TestWait), s to coast to a stop after it
+        private Vector3 m_TestEnd; // walker test: pelvis when the command stopped
+        private float m_TestEndYaw; // walker test: heading when the command stopped
         private Vector3 m_ChuteN,
             m_ChuteTop; // conveyor surface normal and the centre of its top face
         private Vector3 m_Stand,
@@ -405,6 +472,8 @@ namespace G1Pipe
             if (m_Robot == null || m_Mujoco == null)
                 return;
             m_Dt = ts;
+            if (m_PelvisId != uint.MaxValue)
+                m_Still = BodyMotion() < k_StillSpeed ? m_Still + ts : 0f;
             m_PhaseTime += ts;
             m_StepTime += ts;
             m_SinceBest += ts;
@@ -428,6 +497,13 @@ namespace G1Pipe
                     break;
                 case Phase.FindBox:
                     SendHands(Fold, false);
+                    if (WalkerTest)
+                    {
+                        m_TestIdx = 0;
+                        Log.Info($"[G1] walker test: {s_WalkerTests.Length} commands, no grasp");
+                        Advance(Phase.WalkerTest);
+                        break;
+                    }
                     m_Box = RestingBox();
                     if (m_Box < 0)
                         break; // nothing to pick yet: the status line lists every box and why
@@ -445,7 +521,7 @@ namespace G1Pipe
                     if (WalkToBox)
                         Advance(Phase.FaceBox);
                     else
-                        EnterReady();
+                        EnterApproach();
                     break;
                 case Phase.FaceBox:
                     SendHands(Fold, false);
@@ -465,7 +541,10 @@ namespace G1Pipe
                 case Phase.FaceChute:
                     SendHands(Fold, false);
                     if (Turn(YawOf(FaceOf(ChuteEntity!))))
-                        EnterReady();
+                        EnterApproach();
+                    break;
+                case Phase.Approach:
+                    StepApproach();
                     break;
                 case Phase.Ready:
                     StepReady();
@@ -522,6 +601,9 @@ namespace G1Pipe
                     break;
                 case Phase.Recover:
                     StepRecover();
+                    break;
+                case Phase.WalkerTest:
+                    StepWalkerTest();
                     break;
                 default:
                     SendHands(Fold, false);
@@ -636,7 +718,99 @@ namespace G1Pipe
             Advance(Phase.FindBox);
         }
 
-        // Grip frame squared to the box, grip as high up it as the arms need (PlanGrip), then reach (Ready -> PreGrasp -> Squeeze).
+        // Approach: line the body up with the box (Ready follows).
+        private void EnterApproach()
+        {
+            m_Moves = 0;
+            Advance(Phase.Approach);
+        }
+
+        // Approach, one correction per cycle: wait for a still body, measure the box in its own frame, then make the first correction needed -
+        // turn in place to face its front face square, side-step until the pelvis-to-box line points straight ahead, step forward / back
+        // until the front face is FaceDistance ahead (never closer than EdgeClearance to the conveyor edge) - then coast to a stop and
+        // measure again. Lined up (or out of corrections): Ready, whose reach check decides.
+        private void StepApproach()
+        {
+            SendHands(Fold, false);
+            if (m_Step == 0)
+            {
+                if (AwaitStill(m_StepTime, "before lining up with the box"))
+                    return;
+                SetGripFrame(Heading());
+                Vector3 rel = Flat(m_Center - Pelvis());
+                float off = Mathf.WrapToPi(YawOf(m_Fwd) - YawOf(Heading())),
+                    side = Vector3.Dot(rel, m_Lat),
+                    face = Vector3.Dot(rel, m_Fwd) - m_HalfD,
+                    room = ChuteRoom();
+                string state =
+                    $"facing {off * Mathf.Rad2Deg:F0} deg off the box, its centre {side:F2} m left of straight ahead, front face {face:F2} m ahead (aim {FaceDistance:F2}), {room:F2} m of room before the conveyor edge";
+                string why;
+                if (m_Moves >= k_MaxMoves)
+                {
+                    Log.Warn($"[G1] approach: {state} - out of corrections, reaching from here");
+                    EnterReady();
+                    return;
+                }
+                if (Math.Abs(off) > k_AlignYaw)
+                {
+                    m_ApTurnTo = YawOf(m_Fwd);
+                    m_ApCmd = new Vector3(0f, 0f, Math.Sign(off) * k_TurnCmd);
+                    m_ApTime = k_TurnMax;
+                    why = $"turning in place {(off > 0f ? "left" : "right")}";
+                }
+                else if (Math.Abs(side) > k_AlignSide)
+                {
+                    m_ApCmd = new Vector3(0f, Math.Sign(side) * k_SideCmd, 0f);
+                    m_ApTime = Math.Abs(side) > 0.2f ? k_LongBurst : k_Burst;
+                    why = $"side-stepping {(side > 0f ? "left" : "right")} ({m_ApTime:F2} s burst)";
+                }
+                else if (face > FaceDistance + k_AlignFwd && room > 0.1f)
+                {
+                    m_ApCmd = new Vector3(k_FwdCmd, 0f, 0f);
+                    m_ApTime = k_Burst;
+                    why = $"stepping forward ({m_ApTime:F2} s burst)";
+                }
+                else if (face < FaceDistance - k_AlignFwd)
+                {
+                    m_ApCmd = new Vector3(-k_BackCmd, 0f, 0f);
+                    m_ApTime = face < FaceDistance - 0.15f ? k_LongBurst : k_Burst;
+                    why = $"stepping back ({m_ApTime:F2} s burst)";
+                }
+                else
+                {
+                    Log.Info($"[G1] lined up with the box after {m_Moves} corrections: {state}");
+                    EnterReady();
+                    return;
+                }
+                m_Moves++;
+                Log.Info($"[G1] approach {m_Moves}/{k_MaxMoves}: {state} -> {why}");
+                NextStep();
+            }
+            else if (m_Step == 1)
+            {
+                Drive(m_ApCmd.X, m_ApCmd.Y, m_ApCmd.Z);
+                bool turned =
+                    m_ApCmd.Z != 0f
+                    && Math.Abs(Mathf.WrapToPi(m_ApTurnTo - YawOf(Heading()))) < k_TurnStop; // stop early: it coasts on
+                if (m_StepTime >= m_ApTime || turned)
+                    NextStep();
+            }
+            else if (m_StepTime >= k_ApCoast)
+            {
+                m_Step = 0; // coasted to a stop: measure again
+                m_StepTime = 0f;
+                ResetWatch();
+            }
+        }
+
+        // How far the pelvis may still step toward the conveyor before it comes within EdgeClearance of its near edge.
+        private float ChuteRoom() =>
+            Vector3.Dot(ChuteEntity!.Transform.WorldTranslation - Pelvis(), FaceOf(ChuteEntity!))
+            - 0.5f
+                * Math.Min(ChuteEntity!.Transform.WorldScale.X, ChuteEntity!.Transform.WorldScale.Z)
+            - EdgeClearance;
+
+        // Grip frame squared to the box, then Ready: settle, plan the grip and check the reach, then reach (PreGrasp -> Squeeze).
         private void EnterReady()
         {
             SetGripFrame(Heading());
@@ -645,16 +819,72 @@ namespace G1Pipe
             m_Boost = 1f;
             m_PickAt = m_BoxAt = BoxCenter(m_Box);
             SetSafeY();
+            foreach (Arm a in m_Arms)
+                a.Gap = ApproachGap;
+            Advance(Phase.Ready);
+        }
+
+        // Farthest hand target of the reach (over the corners and beside the box) from its shoulder, as a share of the arm.
+        private float ReachShare(out string which)
+        {
+            float worst = 0f;
+            which = "";
+            foreach (Arm a in m_Arms)
+                for (int i = 0; i < 2; i++)
+                {
+                    float r =
+                        ((i == 0 ? HandTarget(a) : GripPoint(a)) - BodyPos(a.Shoulder)).Length()
+                        / k_ArmLength;
+                    if (r <= worst)
+                        continue;
+                    worst = r;
+                    which = $"{a.Name} hand {(i == 0 ? "over its corner" : "beside the box")}";
+                }
+            return worst;
+        }
+
+        // Grip planned from the live shoulders, then the reach checked from where the robot stands: every hand target (over the corners and beside
+        // the box) within k_PlanReach of its shoulder (Approach has lined the body up as close as the conveyor edge allows), else the attempt
+        // fails here (retried; the box is skipped after MaxBoxAttempts). Logs how the body stands to the box.
+        private bool Reachable()
+        {
             PlanGrip();
             foreach (Arm a in m_Arms)
-            {
-                a.Gap = ApproachGap;
                 a.Raise = 2f * m_HalfH - GripHeight(a) + ApproachHeight;
+            float off = Mathf.WrapToPi(YawOf(m_Fwd) - YawOf(Heading())),
+                face = Vector3.Dot(Flat(m_Center - Pelvis()), m_Fwd) - m_HalfD,
+                reach = ReachShare(out string which);
+            string state =
+                $"facing {off * Mathf.Rad2Deg:F0} deg off the box, front face {face:F2} m ahead, farthest hand target {reach * 100f:F0}% of the arm ({which})";
+            if (reach > k_PlanReach)
+            {
+                Fail(
+                    $"box out of reach from where the robot stands: {state} (limit {k_PlanReach * 100f:F0}%) - move the robot or the box, or lower EdgeClearance so it can stand closer"
+                ); // retried; skipped after MaxBoxAttempts
+                return false;
             }
-            Log.Info(
-                $"[G1] reach: {GripInfo()} | front-bottom corners L {Corner(1f)} R {Corner(-1f)} | palms touch at width + 2 x PalmOffset {2f * (m_HalfW + PalmOffset):F3} m | hands travel at {m_SafeY:F2} m"
-            );
-            Advance(Phase.Ready);
+            Log.Info($"[G1] body vs box: {state} -> reaching");
+            return true;
+        }
+
+        // Waits for k_StillTime of unbroken stillness, saying so every k_StillLog s; after PhaseTimeout of waiting the attempt fails (no reach on
+        // a moving body). True while still waiting (or just failed).
+        private bool AwaitStill(float waited, string where)
+        {
+            if (m_Still >= k_StillTime)
+                return false;
+            if (waited > PhaseTimeout)
+            {
+                Fail(
+                    $"body never settled {where}: {BodyMotion():F2} m/s at the hands after {waited:F0} s"
+                );
+                return true;
+            }
+            if ((int)(waited / k_StillLog) != (int)((waited - m_Dt) / k_StillLog))
+                Log.Warn(
+                    $"[G1] waiting for the body to settle {where}: {BodyMotion():F2} m/s at the hands, {waited:F0} s so far"
+                );
+            return true;
         }
 
         // Grip height from the live shoulders: raised up the box until each grasp site is within k_Comfort of the arm's reach, up to k_TopMargin
@@ -753,7 +983,7 @@ namespace G1Pipe
             return true;
         }
 
-        // Ready: once the body is still (the walker keeps balancing), the shoulders and elbows come off the IK and all seven arm joints bend into the
+        // Ready: once the body has been still for k_StillTime straight and every hand target is in reach (Reachable), the shoulders and elbows come off the IK and all seven arm joints bend into the
         // inspector's ready pose (right arm mirrored) over BendDuration, min-jerk - elbows bent, hands up clear of the belt. The moment it's
         // reached the IK takes over again and PreGrasp starts.
         private void StepReady()
@@ -762,8 +992,12 @@ namespace G1Pipe
                 return;
             if (m_Step == 0)
             {
-                if (PelvisSpeed() > k_StillSpeed && m_StepTime < k_StillWait)
+                SendHands(Fold, false); // folded, body-relative, while settling
+                if (AwaitStill(m_StepTime, "before bending the arms") || !Reachable())
                     return; // arm moves on a swaying body make the walker step
+                Log.Info(
+                    $"[G1] reach: {GripInfo()} | front-bottom corners L {Corner(1f)} R {Corner(-1f)} | palms touch at width + 2 x PalmOffset {2f * (m_HalfW + PalmOffset):F3} m | hands travel at {m_SafeY:F2} m"
+                );
                 foreach (Arm a in m_Arms)
                     a.BendFrom = Array.ConvertAll(a.Joints, j => (float)j.Value);
                 ArmIK(false);
@@ -856,8 +1090,10 @@ namespace G1Pipe
                     GraspOutOfReach();
                 return;
             }
+            if (AwaitStill(m_WatchTime, "over the corners"))
+                return; // hold over the corners until the body stops swaying
             Log.Info(
-                $"[G1] PG over the corners after {m_StepTime:F2} s (err L {HandError(m_Arms[0]):F3} R {HandError(m_Arms[1]):F3} m, pelvis moving {PelvisSpeed():F3} m/s) -> tare, descend"
+                $"[G1] PG over the corners after {m_StepTime:F2} s (err L {HandError(m_Arms[0]):F3} R {HandError(m_Arms[1]):F3} m, body still {m_Still:F1} s, {BodyMotion():F3} m/s at the hands) -> tare, descend"
             );
             Tare();
             foreach (Arm a in m_Arms)
@@ -995,7 +1231,7 @@ namespace G1Pipe
         }
 
         // Grasp: the thumbs swing onto the front face and index + middle curl into the side faces while the arms close in, each hand pushing
-        // toward the other, until both hold the required force for GripConfirm s (the hands follow the box until the first touch). A grip that
+        // toward the other, until both palms have reached their faces and each hand holds the required force for GripConfirm s (the hands follow the box until the first touch). A grip that
         // stops building with a hand at its squeeze limit (palm gap and finger curl both maxed) is reopened and re-centred (MaxSqueezeTries).
         private void StepSqueeze(float ts)
         {
@@ -1008,9 +1244,10 @@ namespace G1Pipe
             bool stuck = false;
             foreach (Arm a in m_Arms)
             {
-                if (a.PalmForce < req)
+                bool held = a.PalmOn && a.Force >= req; // palm has reached its face; palm + fingers hold the required force
+                if (!held)
                     m_StepTime = 0f;
-                stuck |= a.PalmForce < req && a.Gap <= 0.001f - k_MaxSqueezeDepth;
+                stuck |= !held && a.Gap <= 0.001f - k_MaxSqueezeDepth;
             }
             if (!stuck)
                 m_SinceBest = 0f; // still closing or holding: that's progress
@@ -1238,6 +1475,81 @@ namespace G1Pipe
                     $"[G1] placed {Flat(BoxCenter(m_Box) - m_Slot).Length():F3} m from its spot"
                 );
                 Advance(RepeatLoop ? Phase.FindBox : Phase.Done);
+            }
+        }
+
+        // Walker test, one command per pass: settle (still body), note pose, send the command for its time (rotator swapped in for its
+        // commands), zero it (rotator: while still active, then back to the walker), coast, then log the real move against the commanded one.
+        private void StepWalkerTest()
+        {
+            SendHands(Fold, false);
+            var c = s_WalkerTests[m_TestIdx];
+            switch (m_Step)
+            {
+                case 0:
+                    if (
+                        m_StepTime < k_TestSettle
+                        || (m_Still < k_StillTime && m_StepTime < k_TestWait)
+                    )
+                        return;
+                    m_TestFrom = Pelvis();
+                    m_TestYaw = YawOf(Heading());
+                    m_TestFootL = BodyPos(m_Mujoco!.GetBodyID("left_ankle_roll_link"));
+                    m_TestFootR = BodyPos(m_Mujoco.GetBodyID("right_ankle_roll_link"));
+                    if (c.Rot)
+                        SetLocomotion(RotatorSlotId);
+                    NextStep();
+                    return;
+                case 1:
+                    Drive(c.Vx, c.Vy, c.Yaw);
+                    if ((int)(m_StepTime / 0.25f) != (int)((m_StepTime - m_Dt) / 0.25f))
+                    {
+                        m_Mujoco!.GetBodyPoseMj(
+                            m_PelvisId,
+                            out _,
+                            out _,
+                            out Vector3 v,
+                            out Vector3 w
+                        );
+                        Vector3 hv = m_MjToHz * v;
+                        Log.Info(
+                            $"[G1] WT   t={m_StepTime:F1} s: pelvis moving fwd {Vector3.Dot(hv, Heading()):F2} left {Vector3.Dot(hv, LeftOf(Heading())):F2} m/s, turning {w.Length():F2} rad/s, height {Pelvis().Y:F3} m"
+                        );
+                    }
+                    if (m_StepTime >= c.T)
+                    {
+                        m_TestEnd = Pelvis();
+                        m_TestEndYaw = YawOf(Heading());
+                        NextStep();
+                    }
+                    return;
+                default:
+                    if (m_Active == RotatorSlotId)
+                    {
+                        if (m_StepTime < k_DecelTime)
+                            return;
+                        SetLocomotion(WalkerSlotId);
+                    }
+                    if (m_StepTime < k_TestCoast)
+                        return;
+                    Vector3 fwd = new Vector3(Mathf.Cos(m_TestYaw), 0f, -Mathf.Sin(m_TestYaw)),
+                        d = Flat(Pelvis() - m_TestFrom),
+                        dc = Flat(m_TestEnd - m_TestFrom);
+                    Log.Info(
+                        $"[G1] WT {m_TestIdx + 1}/{s_WalkerTests.Length} {(c.Rot ? "rotator" : "walker")} vx {c.Vx:F2} vy {c.Vy:F2} yaw {c.Yaw:F2} for {c.T:F2} s"
+                            + $" -> while commanded: fwd {Vector3.Dot(dc, fwd):F3} m, left {Vector3.Dot(dc, LeftOf(fwd)):F3} m, turned {Mathf.WrapToPi(m_TestEndYaw - m_TestYaw) * Mathf.Rad2Deg:F1} deg"
+                            + $" | total after coasting {k_TestCoast:F1} s: fwd {Vector3.Dot(d, fwd):F3} m, left {Vector3.Dot(d, LeftOf(fwd)):F3} m, turned {Mathf.WrapToPi(YawOf(Heading()) - m_TestYaw) * Mathf.Rad2Deg:F1} deg"
+                            + $" (asked fwd {c.Vx * c.T:F2} m, left {c.Vy * c.T:F2} m, turn {c.Yaw * c.T * Mathf.Rad2Deg:F0} deg)"
+                            + $" | feet moved L {Flat(BodyPos(m_Mujoco!.GetBodyID("left_ankle_roll_link")) - m_TestFootL).Length():F3} m, R {Flat(BodyPos(m_Mujoco.GetBodyID("right_ankle_roll_link")) - m_TestFootR).Length():F3} m"
+                    );
+                    if (++m_TestIdx < s_WalkerTests.Length)
+                        Advance(Phase.WalkerTest);
+                    else
+                    {
+                        Log.Info("[G1] walker test done");
+                        Advance(Phase.Done);
+                    }
+                    return;
             }
         }
 
@@ -1606,6 +1918,16 @@ namespace G1Pipe
                     a.Cmd = SiteWorld(a.Site);
                     a.T = a.Tau = 0f;
                 }
+                if (!grip && !newMove && a.Tau >= a.T && target.Method.Name == nameof(Fold))
+                {
+                    // Folded: follow the body's fold point with a k_FoldSmooth lag - drift is followed, bounces never reach the arms (and never
+                    // come back through them into the walker), and no path is re-planned.
+                    a.Cmd += (goal - a.Cmd) * (1f - (float)Math.Exp(-m_Dt / k_FoldSmooth));
+                    a.Direct = true;
+                    a.Rising = false;
+                    SendTarget(a);
+                    continue;
+                }
                 bool direct = grip || (a.Tau >= a.T && (goal - a.Cmd).Length() <= k_Snap);
                 if (m_Phase == Phase.PreGrasp && direct != a.Direct)
                     Log.Info(
@@ -1626,8 +1948,7 @@ namespace G1Pipe
                     float u = a.Tau / a.T;
                     a.Cmd = a.From + (a.To - a.From) * (u * u * u * (10f + u * (6f * u - 15f))); // min-jerk position profile
                 }
-                m_Robot!.SetInputVector3(a.Target, a.Cmd);
-                m_Robot.SetInputVector3(a.Pole, BodyPoint(Mirror(PoleOffset, a.Side)));
+                SendTarget(a);
             }
             if (!newMove)
                 return;
@@ -1639,7 +1960,25 @@ namespace G1Pipe
             m_Robot.SetInputTrigger(s_Start);
         }
 
-        // Next straight segment toward goal. Pure vertical moves go straight. From below m_SafeY, a long move across or a big climb first rises
+        // Sends a hand's IK target and elbow pole. Cap: a target beyond k_MaxReach of the shoulder is pulled in toward it (logged when the cap
+        // starts and stops).
+        private void SendTarget(Arm a)
+        {
+            Vector3 d = a.Cmd - BodyPos(a.Shoulder);
+            float max = k_MaxReach * k_ArmLength;
+            if (d.Length() > max != a.Capped)
+                Log.Warn(
+                    $"[G1] {a.Name} IK target {(d.Length() > max ? $"{d.Length() / k_ArmLength * 100f:F0}% of the arm away -> pulled in to {k_MaxReach * 100f:F0}%" : "back within reach")} in {m_Phase}"
+                );
+            a.Capped = d.Length() > max;
+            m_Robot!.SetInputVector3(
+                a.Target,
+                a.Capped ? a.Cmd - d * (1f - max / d.Length()) : a.Cmd
+            );
+            m_Robot.SetInputVector3(a.Pole, BodyPoint(Mirror(PoleOffset, a.Side)));
+        }
+
+        // Next straight segment toward goal. Pure vertical moves go straight. Near a box (NearBox) and below m_SafeY, a long move across or a big climb first rises
         // straight up to m_SafeY (wrist held). A move that ends lower first crosses at the current height, then the next segment comes straight
         // down. Anything else (short local moves, climbs above m_SafeY) goes straight.
         private void PlanSegment(Arm a, Vector3 goal)
@@ -1647,6 +1986,7 @@ namespace G1Pipe
             float across = Flat(goal - a.Cmd).Length();
             a.Rising =
                 across > 0.02f
+                && (NearBox(a.Cmd) || NearBox(goal)) // away from the boxes a move just goes straight
                 && a.Cmd.Y < m_SafeY - 0.005f
                 && (across > k_LocalMove || goal.Y > a.Cmd.Y + k_LocalMove);
             a.From = a.Cmd;
@@ -1661,6 +2001,15 @@ namespace G1Pipe
                 Log.Info(
                     $"[G1] PG {a.Name} new segment ({(across <= 0.02f ? "straight to the goal (vertical)" : a.Rising ? "straight up to the travel height" : a.To.Y > goal.Y + 0.001f ? "across at this height, down next" : "straight to the goal")}): {F(a.From)} -> {F(a.To)}, {(a.To - a.From).Length():F3} m in {a.T:F2} s; goal {F(goal)} {(goal - a.To).Length():F3} m beyond"
                 );
+        }
+
+        // Point within k_BoxNear (horizontally) of a box on the conveyor.
+        private bool NearBox(Vector3 p)
+        {
+            for (int i = 0; i < m_Boxes.Count; i++)
+                if (Math.Abs(ChuteGap(i)) < 0.05f && Flat(BoxCenter(i) - p).Length() < k_BoxNear)
+                    return true;
+            return false;
         }
 
         // A hand is still running a path segment.
@@ -2005,10 +2354,11 @@ namespace G1Pipe
         // Pelvis position (world) and horizontal heading, from MuJoCo.
         private Vector3 Pelvis() => BodyPos(m_PelvisId);
 
-        private float PelvisSpeed()
+        // How fast the body carries a hand held out in front: pelvis speed + its turn (and sway) rate x k_HandLever (m/s).
+        private float BodyMotion()
         {
-            m_Mujoco!.GetBodyPoseMj(m_PelvisId, out _, out _, out Vector3 v, out _);
-            return v.Length();
+            m_Mujoco!.GetBodyPoseMj(m_PelvisId, out _, out _, out Vector3 v, out Vector3 w);
+            return v.Length() + k_HandLever * w.Length();
         }
 
         private Vector3 Heading() => FlatDir(BodyRot(m_PelvisId) * Vector3.Right);
