@@ -6,6 +6,8 @@ namespace G1Pipe
 {
     // Picks up each box resting on the conveyor with both hands, places it on the table to the left, and comes back for the next.
     // FindBox -> FaceBox -> WalkToBox -> FaceChute -> Approach -> Ready -> PreGrasp -> Squeeze -> (DragIn) -> Lift -> PullIn -> TurnToTable -> WalkToTable -> FaceTable -> Place -> Release -> Retract -> FindBox ...
+    // CatchBox: a box sliding down the tilted conveyor is tracked from the start; FindBox -> Catch puts the downhill hand's palm in its path
+    // ahead of where the box will be by the time the hand gets there, and the box stops against it. The robot catches from where it stands.
     // The "Phases" checkboxes switch groups of phases off for testing. Every phase has a progress watchdog: a stall triggers a corrective
     // retry (step closer, re-squeeze, re-turn); when those run out the attempt fails (Recover) and the next box is tried; a box that fails
     // MaxBoxAttempts times is skipped until it moves.
@@ -20,6 +22,7 @@ namespace G1Pipe
             FaceChute,
             Approach,
             Ready,
+            Catch,
             PreGrasp,
             Squeeze,
             DragIn,
@@ -129,6 +132,18 @@ namespace G1Pipe
         private const float k_WalkProgress = 0.02f,
             k_TurnProgress = 0.02f; // m, rad: smallest gain that counts as progress
         private const float k_RestSpeed = 0.02f; // m/s, box counts as resting
+        private const float k_CatchZone = 0.03f,
+            k_CatchClear = 0.05f,
+            k_CatchLead = 0.3f,
+            k_CatchFront = 0.10f,
+            k_AccelSmooth = 0.3f,
+            k_CatchMargin = 0.5f,
+            k_SlideSpare = 0.2f,
+            k_StopSmooth = 0.1f,
+            k_GiveMatch = 0.05f,
+            k_GiveTouch = 0.005f; // m short of its stop spot a stopped box still counts as caught; m the box must still be short of it when the palm arrives; s the arm lags its IK target;
+
+        // m the grasp site waits in front of the box's front face before sliding in (+ FrontInset; the fingertips reach ~8.5 cm past it); s smoothing of the measured box acceleration; s spare the stopper leaves itself when it must go before the body is still; s spare the slide in must have before the box comes; s easing time constant of the stopper's command near its target; m short of the palm the box is when the palm starts matching its speed; m short of the palm the box counts as on it
         private const float k_DepthGain = 0.002f,
             k_MaxSqueezeRate = 0.02f; // squeeze admittance: m/(N*s), m/s
         private const float k_SqueezeMargin = 1.25f,
@@ -195,6 +210,9 @@ namespace G1Pipe
 
         [Group("Phases")]
         public bool WalkToBox = true; // walk up to the box and square up to the conveyor (off: grasp from where the robot stands)
+
+        [Group("Phases")]
+        public bool CatchBox = true; // catch boxes sliding down the conveyor from where the robot stands, stopping each with the downhill hand (off: only boxes resting on the belt are picked)
 
         [Group("Phases")]
         public bool LiftBox = true; // lift after the grip (off: open the hands again right away)
@@ -264,6 +282,21 @@ namespace G1Pipe
 
         [Group("Box")]
         public float BoxFriction = 1f; // hand-box mu (MuJoCo uses the larger of the two geoms' friction)
+
+        [Group("Catch")]
+        public float CatchHandSpeed = 0.5f; // m/s top speed of the stopper hand's IK target as it tracks its spot (eases in over the last few cm)
+
+        [Group("Catch")]
+        public float CatchShiftMax = 0.15f; // m the stop spot may move down the belt from straight ahead when the box would beat the hand there
+
+        [Group("Catch")]
+        public float CatchGive = 0.06f; // m the palm yields down the belt with the box as it arrives, braking it to a stop (0.005 = almost stiff)
+
+        [Group("Catch")]
+        public float CatchSpeed = 0.03f; // m/s, a box slower than this against the stopper palm counts as stopped
+
+        [Group("Catch")]
+        public float CatchTime = 0.3f; // s the box must stay stopped against the stopper palm to count as caught
 
         [Group("Arms")]
         public Vector3 FoldOffset = new Vector3(0.15f, 0.15f, 0.20f); // hand target while walking, from the pelvis: (forward, up, outward)
@@ -424,6 +457,18 @@ namespace G1Pipe
         private readonly List<(uint Body, uint Geom, Vector3 Half)> m_Boxes =
             new List<(uint Body, uint Geom, Vector3 Half)>(); // every free box
         private int[] m_Fails = new int[0]; // failed attempts per box
+        private Vector3 m_Downhill,
+            m_Path,
+            m_StopCmd; // direction a box slides down the conveyor (in its plane); catch: a point on the box's path, on the belt; the stopper's IK command
+        private float m_Ahead,
+            m_Shift,
+            m_Give,
+            m_GiveV,
+            m_GiveDecel,
+            m_Accel,
+            m_PrevV; // catch: along-path position of the spot straight ahead of the pelvis; stop spot shift down the belt from it and give (m); give speed (m/s) and braking (m/s^2); box acceleration measured down the belt (m/s^2) and its last speed (m/s)
+        private float m_PeakSpeed,
+            m_PeakForce; // catch: fastest the box came, hardest it hit the stopper hand
         private int m_Box = -1; // index of the box being handled
         private uint m_PelvisId = uint.MaxValue;
         private Quaternion m_MjToHz = Quaternion.Identity; // MuJoCo -> Hazel axes
@@ -707,6 +752,12 @@ namespace G1Pipe
                         Advance(Phase.WalkerTest);
                         break;
                     }
+                    m_Box = CatchBox ? IncomingBox() : -1;
+                    if (m_Box >= 0)
+                    {
+                        EnterCatch();
+                        break;
+                    }
                     m_Box = RestingBox();
                     if (m_Box < 0)
                         break; // nothing to pick yet: the status line lists every box and why
@@ -751,6 +802,9 @@ namespace G1Pipe
                     break;
                 case Phase.Ready:
                     StepReady();
+                    break;
+                case Phase.Catch:
+                    StepCatch(ts);
                     break;
                 case Phase.PreGrasp:
                     StepPreGrasp(ts);
@@ -915,6 +969,22 @@ namespace G1Pipe
             }
             m_ChuteN = ChuteEntity.Transform.WorldRotationQuat * Vector3.Up;
             m_ChuteTop = TopOf(ChuteEntity);
+            m_Downhill = m_ChuteN * m_ChuteN.Y - Vector3.Up; // gravity along the belt plane: length = sin(tilt)
+            if (CatchBox)
+            {
+                if (m_Downhill.Length() < 0.01f)
+                {
+                    Fail(
+                        "CatchBox needs the conveyor tilted (> 0.6 deg along its length) so boxes slide down it",
+                        false
+                    );
+                    return;
+                }
+                m_Downhill = m_Downhill.Normalized();
+                Log.Info(
+                    $"[G1] catch: belt tilted {Mathf.Asin(Math.Abs(m_Downhill.Y)) * Mathf.Rad2Deg:F1} deg, boxes slide toward {F(m_Downhill)} (frictionless: {SlideAccel():F2} m/s^2)"
+                );
+            }
             SetSafeY();
             if (ApproachGap > 0.1f)
                 Log.Warn(
@@ -1229,6 +1299,219 @@ namespace G1Pipe
             );
             GlideTo(HandMoveSpeed);
             Advance(Phase.PreGrasp);
+        }
+
+        // The downhill hand: the box slides toward it and stops against its palm.
+        private Arm Stopper => Vector3.Dot(m_Downhill, m_Lat) > 0f ? m_Arms[0] : m_Arms[1];
+
+        // A hand the catch keeps folded like while walking (smoothed fold point, wrist on the heading), so it stays still: the free hand, and the stopper until it goes.
+        private bool Parked(Arm a) => m_Phase == Phase.Catch && (a != Stopper || m_Step == 0);
+
+        // Catch pose: the stopper's palm on the stop spot of the box's downhill face (m_Center = the box centre there) once it goes; parked hands folded.
+        private Vector3 CatchPose(Arm a) => Parked(a) ? Fold(a) : m_StopCmd;
+
+        // The stopper's target: HandTarget with the palm centred on the box's mid-height (a hit above the centre of mass twists the box away),
+        // its lower edge never under BeltClearance.
+        private Vector3 StopTarget()
+        {
+            Arm s = Stopper;
+            float up = Math.Max(m_HalfH + PalmBelow(s) - k_PalmHalf, BeltClearance + PalmBelow(s));
+            return HandTarget(s) + Vector3.Up * (up - GripHeight(s));
+        }
+
+        // s the stopper takes to cover d to a still target: at CatchHandSpeed, plus its easing in.
+        private float Travel(float d) => d / CatchHandSpeed + 2f * k_StopSmooth;
+
+        // How far the box centre is past its stop spot along its path (- = still uphill of it).
+        private float PastStop() =>
+            Vector3.Dot(BoxCenter(m_Box) - m_Path, m_Downhill) - m_Ahead - m_Shift - m_Give;
+
+        // Catch from the box's first frames: grip frame from the box and its path down the belt (through where it rests on the belt); the
+        // robot catches from where it stands, so the belt must run across its front.
+        private void EnterCatch()
+        {
+            SetGripFrame(Heading());
+            m_Path = m_Center - m_ChuteN * ChuteGap(m_Box);
+            m_Shift = m_Give = m_GiveV = m_PeakSpeed = m_PeakForce = m_PrevV = 0f;
+            m_Accel = SlideAccel(); // frictionless until measured: the earliest the box can come
+            m_Carrying = false;
+            m_Lift = m_GripLift = 0f;
+            m_Slide = -(FrontInset + k_CatchFront); // stopper waits in front of the path
+            foreach (Arm a in m_Arms)
+                a.Gap = a == Stopper ? 0f : ApproachGap;
+            float across = Vector3.Dot(m_Downhill, LeftOf(Heading()));
+            if (Math.Abs(across) < 0.5f)
+            {
+                Fail(
+                    $"the belt doesn't run across the robot's front ({Mathf.Acos(Math.Abs(across)) * Mathf.Rad2Deg:F0} deg off) - turn the robot to face the conveyor",
+                    false
+                );
+                return;
+            }
+            Log.Info(
+                $"[G1] catching box {m_Box} at {F(m_Center)} ({BoxSpeed(m_Box):F2} m/s) with the {Stopper.Name} hand | {GripInfo()}"
+            );
+            Advance(Phase.Catch);
+        }
+
+        // Catch, every frame. Steps: 0 both hands folded while the body settles (the stop spot follows the pelvis: straight ahead of it on the
+        // path), until it has been still for StillTime or the box is so close the stopper must go; 1 stopper to its waiting point in front of the
+        // box's path (palm height, fingertips k_CatchFront clear of its front face); 2 slide in along the forward axis onto the stop spot; 3 in
+        // place (contact tared); 4 give; 5 caught. From step 1 the spot is fixed in the world, except that once the stopper is at its waiting
+        // point (and only there) it moves down the belt (never back up, at most CatchShiftMax) to k_CatchClear past where the box will be when the
+        // palm gets there - predicted from its speed and its measured acceleration; the slide only starts with time to finish before the box
+        // (+ k_SlideSpare), and from then the spot is fixed, so the palm only moves straight forward into the box's path, never along it.
+        // Give: over the box's last k_GiveMatch before it reaches the palm, the spot speeds up so the gap closes at a steadily falling rate (they meet
+        // with almost no speed between them); once the box is on the palm (contact, or within k_GiveTouch) it brakes to a stop over CatchGive, so the box is slowed by a
+        // yielding palm instead of bouncing off a stiff one. The palm is centred on the box's mid-height (StopTarget). Caught once the give is over
+        // and the box stays slower than CatchSpeed for CatchTime within k_CatchZone of the spot; then it stays held there. Fails if it gets
+        // past the stopper, falls off the belt, or never arrives.
+        private void StepCatch(float ts)
+        {
+            Arm s = Stopper;
+            Vector3 c = BoxCenter(m_Box);
+            m_Mujoco!.GetBodyPoseMj(m_Boxes[m_Box].Body, out _, out _, out Vector3 vel, out _);
+            float v = Vector3.Dot(m_MjToHz * vel, m_Downhill),
+                speed = BoxSpeed(m_Box);
+            ReadForces();
+            LogContacts("CA");
+            bool touch = m_Step >= 3 && s.Force + s.ThumbForce > TouchForce; // tared from step 3 on
+            if (!touch && Math.Abs(ChuteGap(m_Box)) < 0.01f)
+                m_Accel = Mathf.Clamp(
+                    m_Accel
+                        + ((v - m_PrevV) / ts - m_Accel)
+                            * (1f - (float)Math.Exp(-ts / k_AccelSmooth)),
+                    0f,
+                    SlideAccel()
+                ); // sliding freely on the belt: learn its acceleration
+            m_PrevV = v;
+            Vector3 goal = StopTarget(),
+                spot = goal - m_Fwd * m_Slide; // the stopper's target now; its palm on the stop spot
+            float err = (SiteWorld(s.Site) - goal).Length(),
+                slide = Travel((spot - goal).Length()), // s the slide in takes
+                hand =
+                    (
+                        m_Step <= 1
+                            ? (err <= ReachTolerance ? 0f : Travel(err)) + slide
+                            : Travel((SiteWorld(s.Site) - spot).Length())
+                    ) + k_CatchLead; // s until the palm is on the stop spot
+            if (m_Step == 0)
+            {
+                Vector3 left = LeftOf(Heading());
+                m_Ahead = Vector3.Dot(Pelvis() - m_Path, left) / Vector3.Dot(m_Downhill, left);
+            }
+            else if (m_Step == 1 && err <= ReachTolerance)
+            {
+                float then =
+                    Vector3.Dot(c - m_Path, m_Downhill)
+                    - m_Ahead
+                    + v * hand
+                    + 0.5f * m_Accel * hand * hand; // box centre past straight ahead when the palm gets there
+                m_Shift = Math.Min(Math.Max(m_Shift, then + k_CatchClear), CatchShiftMax);
+            }
+            if (m_Step == 3)
+            {
+                float gap = Math.Max(0f, -PastStop()); // box centre short of the spot = its face short of the palm
+                m_GiveV =
+                    Math.Max(0f, v) * (1f - (float)Math.Sqrt(Math.Min(1f, gap / k_GiveMatch))); // relative speed falls at a steady rate: meets the box at its speed
+                m_Give += m_GiveV * ts;
+            }
+            else if (m_Step == 4)
+            {
+                m_Give += m_GiveV * ts;
+                m_GiveV = Math.Max(0f, m_GiveV - m_GiveDecel * ts);
+            }
+            m_Center = m_Path + m_Downhill * (m_Ahead + m_Shift + m_Give);
+            float past = PastStop(),
+                a = Math.Max(m_Accel, 1e-3f),
+                eta = past >= 0f
+                    ? 0f
+                    : (-v + (float)Math.Sqrt(Math.Max(0f, v * v - 2f * a * past))) / a; // s until the box is at the spot
+            if (m_Step == 0 && (m_Still >= StillTime || eta <= hand + k_CatchMargin))
+            {
+                Log.Info(
+                    $"[G1] {s.Name} hand going: {(m_Still >= StillTime ? $"body still for {m_Still:F1} s" : $"box getting close (body still only {m_Still:F1} s)")}, box {-past:F3} m short of the stop spot, there in ~{eta:F2} s, the palm needs ~{hand:F2} s | stop spot fixed at {F(m_Center)}"
+                );
+                m_StopCmd = s.Cmd; // tracking starts from where the parked hand's command is
+                s.T = s.Tau = 0f;
+                s.Rising = false;
+                NextStep();
+            }
+            else if (
+                m_Step == 1
+                && err <= ReachTolerance
+                && eta > slide + k_CatchLead + k_SlideSpare
+            ) // the slide in only starts with time to finish before the box comes
+            {
+                Log.Info(
+                    $"[G1] {s.Name} hand in front of the box's path ({err:F3} m off) -> sliding in, box {-past:F3} m short of the stop spot, there in ~{eta:F2} s"
+                );
+                m_Slide = 0f;
+                NextStep();
+            }
+            else if (m_Step == 2 && err <= ReachTolerance)
+            {
+                Tare();
+                Log.Info(
+                    $"[G1] {s.Name} palm in the box's path ({err:F3} m off the stop spot, {m_Shift:F3} m down the belt from straight ahead), box {-past:F3} m short, there in ~{eta:F2} s"
+                );
+                NextStep();
+            }
+            else if (m_Step == 3 && (touch || past >= -k_GiveTouch))
+            {
+                m_GiveDecel = m_GiveV * m_GiveV / (2f * Math.Max(CatchGive, 0.005f));
+                Log.Info(
+                    $"[G1] give: box on the {s.Name} palm ({(touch ? $"{s.Force + s.ThumbForce:F1} N" : $"{-past:F3} m short of it")}) at {v:F3} m/s, palm already moving {m_GiveV:F3} m/s after {m_Give:F3} m -> braking over {CatchGive:F3} m ({m_GiveDecel:F1} m/s^2)"
+                );
+                NextStep();
+            }
+            // The stopper's IK command tracks its target continuously - at up to CatchHandSpeed, easing in over k_StopSmooth near it, so a
+            // moved target (sway, shift, slide in) is never a fresh fixed-length move; in the give it moves with the target directly.
+            if (m_Step >= 1)
+            {
+                Vector3 d = StopTarget() - m_StopCmd;
+                float len = d.Length(),
+                    move = m_GiveV > 0f
+                        ? len
+                        : Math.Min(
+                            len * (1f - (float)Math.Exp(-ts / k_StopSmooth)),
+                            CatchHandSpeed * ts
+                        );
+                if (len > 1e-6f)
+                    m_StopCmd += d * (move / len);
+            }
+            SendHands(CatchPose, false);
+            m_PeakSpeed = Math.Max(m_PeakSpeed, speed);
+            m_PeakForce = Math.Max(m_PeakForce, m_Step >= 3 ? s.Force + s.ThumbForce : 0f);
+            if (PreGraspLogInterval > 0f && (m_DbgTimer += ts) >= PreGraspLogInterval)
+            {
+                m_DbgTimer = 0f;
+                Log.Info(
+                    $"[G1] CA t={m_PhaseTime:F2} step {m_Step} | box {F(c)} {v:F3} m/s down the belt (accel {m_Accel:F3} m/s^2), {-past:F3} m short of the stop spot, there in ~{eta:F2} s, belt gap {ChuteGap(m_Box):F3} m"
+                        + $" | stop spot {F(m_Center)}: shift {m_Shift:F3} give {m_Give:F3} m ({m_GiveV:F3} m/s) | {s.Name} {err:F3} m off its target (palm on the spot in ~{hand:F2} s), reach {(SiteWorld(s.Site) - BodyPos(s.Shoulder)).Length() / k_ArmLength * 100f:F0}% / target {(goal - BodyPos(s.Shoulder)).Length() / k_ArmLength * 100f:F0}% of the arm{(s.Capped ? " (capped)" : "")}"
+                        + $" | force palm {s.PalmForce:F1} hand {s.Force:F1} thumb {s.ThumbForce:F1} N | pelvis {F(Pelvis())} yaw {YawOf(Heading()) * Mathf.Rad2Deg:F0} deg"
+                );
+            }
+            if (m_Step == 5)
+                return; // caught: hold it there
+            if (past > m_HalfW || ChuteGap(m_Box) < -0.05f || m_PhaseTime > PhaseTimeout)
+            {
+                Fail(
+                    past > m_HalfW
+                        ? $"box got past the {s.Name} hand ({past:F3} m beyond the stop spot, step {m_Step}{(m_Step <= 1 ? " - too late to slide the palm in" : "")}, hand {err:F3} m off its target)"
+                    : ChuteGap(m_Box) < -0.05f ? "box fell off the belt"
+                    : $"box never stopped at the {s.Name} hand: {-past:F3} m short, {speed:F3} m/s after {m_PhaseTime:F0} s"
+                );
+                return;
+            }
+            if (m_Step < 4 || m_GiveV > 0f || speed > CatchSpeed || past < -k_CatchZone)
+                m_StepTime = 0f; // from here m_StepTime = time stopped at the hand after the give
+            if (m_StepTime < CatchTime)
+                return;
+            Log.Info(
+                $"[G1] caught box {m_Box} after {m_PhaseTime:F2} s: {-past:F3} m short of the stop spot, came at up to {m_PeakSpeed:F2} m/s, gave {m_Give:F3} m, hand force up to {m_PeakForce:F1} N, now {s.Force:F1} N | holding it there"
+            );
+            m_Step = 5;
         }
 
         // Both hands start one straight min-jerk move from their current IK targets to HandTarget, both taking the time the longer one needs at
@@ -2090,6 +2373,41 @@ namespace G1Pipe
             return best;
         }
 
+        // Nearest box over the conveyor still uphill of the pelvis (and not failed MaxBoxAttempts times): the next to catch; -1 if none.
+        private int IncomingBox()
+        {
+            int best = -1;
+            float bestAt = float.MinValue;
+            for (int i = 0; i < m_Boxes.Count; i++)
+            {
+                float at = Vector3.Dot(BoxCenter(i) - Pelvis(), m_Downhill); // - = uphill of the pelvis
+                if (
+                    OverChute(BoxCenter(i))
+                    && at < 0f
+                    && at > bestAt
+                    && m_Fails[i] < MaxBoxAttempts
+                )
+                {
+                    best = i;
+                    bestAt = at;
+                }
+            }
+            return best;
+        }
+
+        // Fastest a box can speed up sliding down the belt (frictionless): g sin(tilt).
+        private float SlideAccel() => 9.81f * Math.Abs(m_Downhill.Y);
+
+        // Point p lies over the conveyor's top face.
+        private bool OverChute(Vector3 p)
+        {
+            TransformComponent t = ChuteEntity!.Transform;
+            Vector3 d = t.WorldRotationQuat.Conjugate * (p - t.WorldTranslation);
+            return d.Y > 0f
+                && Math.Abs(d.X) < 0.5f * t.WorldScale.X
+                && Math.Abs(d.Z) < 0.5f * t.WorldScale.Z;
+        }
+
         // Free-moving boxes: scene bodies (named lucky_body_<entity id>) with a box geom and a free joint.
         private void FindBoxes()
         {
@@ -2278,18 +2596,18 @@ namespace G1Pipe
             - (m_ChuteN.X * (p.X - m_ChuteTop.X) + m_ChuteN.Z * (p.Z - m_ChuteTop.Z)) / m_ChuteN.Y;
 
         // Wrist servo: turns each hand toward its zero-pose frame on the grip axes - fingers (X) along forward, Y along the squeeze axis, so the
-        // left palm (-Y) and right palm (+Y) face the box; heading axes when not gripping. Closed on the measured hand frame, whatever the IK does.
+        // left palm (-Y) and right palm (+Y) face the box; heading axes when not gripping (and for the catch's parked hand). Closed on the measured hand frame, whatever the IK does.
         // A hand still climbing out from low down keeps its wrist still (turning there would swing the fingers into the belt).
         private void OrientWrists(float ts)
         {
             bool grip = m_Phase >= Phase.Ready && m_Phase <= Phase.Release;
-            Vector3 x = grip ? (m_Carrying ? BodyDir(m_Fwd) : m_Fwd) : Heading(),
-                y = LeftOf(x),
-                z = Vector3.Cross(x, y);
             foreach (Arm a in m_Arms)
             {
                 if (a.Joints.Length < 7 || a.Rising || SiteWorld(a.Site).Y < a.Cmd.Y - k_Snap)
                     continue;
+                Vector3 x = grip && !Parked(a) ? (m_Carrying ? BodyDir(m_Fwd) : m_Fwd) : Heading(),
+                    y = LeftOf(x),
+                    z = Vector3.Cross(x, y);
                 Quaternion r = BodyRot(a.WristLink[2]);
                 Vector3 cy = r * s_Axes[1],
                     w =
@@ -2341,7 +2659,12 @@ namespace G1Pipe
                     a.Cmd = SiteWorld(a.Site);
                     a.T = a.Tau = 0f;
                 }
-                if (!grip && !newMove && a.Tau >= a.T && target.Method.Name == nameof(Fold))
+                if (
+                    !grip
+                    && !newMove
+                    && a.Tau >= a.T
+                    && (target.Method.Name == nameof(Fold) || Parked(a))
+                )
                 {
                     // Folded: follow the body's fold point with a k_FoldSmooth lag - drift is followed, bounces never reach the arms (and never
                     // come back through them into the walker), and no path is re-planned.
