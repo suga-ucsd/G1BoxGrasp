@@ -8,6 +8,8 @@ namespace G1Pipe
     // FindBox -> FaceBox -> WalkToBox -> FaceChute -> Approach -> Ready -> PreGrasp -> Squeeze -> (DragIn) -> Lift -> PullIn -> TurnToTable -> WalkToTable -> FaceTable -> Place -> Release -> Retract -> FindBox ...
     // CatchBox: a box sliding down the tilted conveyor is tracked from the start; FindBox -> Catch puts the downhill hand's palm in its path
     // ahead of where the box will be by the time the hand gets there, and the box stops against it. The robot catches from where it stands.
+    // Caught, it goes straight into the grasp: the stopper keeps holding the box (m_Holder) while the other hand reaches in front of it and
+    // slides in along its side face (PreGrasp), then both squeeze and the usual Lift -> ... follows.
     // The "Phases" checkboxes switch groups of phases off for testing. Every phase has a progress watchdog: a stall triggers a corrective
     // retry (step closer, re-squeeze, re-turn); when those run out the attempt fails (Recover) and the next box is tried; a box that fails
     // MaxBoxAttempts times is skipped until it moves.
@@ -302,6 +304,12 @@ namespace G1Pipe
         public Vector3 FoldOffset = new Vector3(0.15f, 0.15f, 0.20f); // hand target while walking, from the pelvis: (forward, up, outward)
 
         [Group("Arms")]
+        public Vector3 StartShoulderDeg = new Vector3(25f, 10f, 0f); // deg left shoulder at the start - pitch (+ = upper arm back), roll (+ = out), yaw; right mirrored
+
+        [Group("Arms")]
+        public float StartElbowDeg = -40f; // deg elbow at the start (0 = forearm level, + = straightening to 90, - = folding up to -60): with the shoulder above, hands start near the fold, nothing sticking out toward the conveyor
+
+        [Group("Arms")]
         public Vector3 PoleOffset = new Vector3(-0.30f, 0.10f, 0.15f); // elbow hint from the pelvis: (forward, up, outward)
 
         [Group("Arms")]
@@ -457,6 +465,7 @@ namespace G1Pipe
         private readonly List<(uint Body, uint Geom, Vector3 Half)> m_Boxes =
             new List<(uint Body, uint Geom, Vector3 Half)>(); // every free box
         private int[] m_Fails = new int[0]; // failed attempts per box
+        private Arm? m_Holder; // the hand that caught the box: stays on its face (no pre-grip, no opening) until the grip holds
         private Vector3 m_Downhill,
             m_Path,
             m_StopCmd; // direction a box slides down the conveyor (in its plane); catch: a point on the box's path, on the belt; the stopper's IK command
@@ -934,6 +943,31 @@ namespace G1Pipe
                     act.IK = !j.StartsWith("_wrist") && !j.StartsWith("_hand");
                     acts.Add(act);
                 }
+                // Start tucked: the shoulder and elbow start pose written straight into the sim, so the spawn's forearms-forward pose
+                // never swings out over the conveyor while the body drops onto its feet.
+                float[] tuck =
+                {
+                    StartShoulderDeg.X,
+                    a.Side * StartShoulderDeg.Y,
+                    a.Side * StartShoulderDeg.Z,
+                    StartElbowDeg,
+                };
+                string[] arm =
+                {
+                    "_shoulder_pitch_joint",
+                    "_shoulder_roll_joint",
+                    "_shoulder_yaw_joint",
+                    "_elbow_joint",
+                };
+                for (int i = 0; i < 4; i++)
+                {
+                    float q = tuck[i] * Mathf.Deg2Rad;
+                    m_Mujoco.SetQposByIndex(
+                        m_Mujoco.GetJointQposAdr(m_Mujoco.GetJointID(a.Name + arm[i])),
+                        q
+                    );
+                    acts[i].Value = q;
+                }
                 a.Joints = acts.GetRange(0, 7).ToArray();
                 a.Hand = acts.GetRange(7, 4).ToArray();
                 a.WristQ = new[]
@@ -994,6 +1028,11 @@ namespace G1Pipe
                 $"[G1] ready: {m_Boxes.Count} boxes, hand geoms L={m_Arms[0].Geoms.Length} R={m_Arms[1].Geoms.Length}, pelvis at {Pelvis()}"
             );
             SendHands(Fold, true);
+            foreach (Arm a in m_Arms)
+            {
+                a.Cmd = Fold(a); // first IK targets at the fold, not where the hands were before the tuck
+                SendTarget(a);
+            }
             Advance(Phase.FindBox);
         }
 
@@ -1099,6 +1138,7 @@ namespace G1Pipe
             m_PickAt = m_BoxAt = BoxCenter(m_Box);
             SetSafeY();
             m_Slide = 0f;
+            m_Holder = null;
             foreach (Arm a in m_Arms)
                 a.Gap = ApproachGap;
             Advance(Phase.Ready);
@@ -1493,7 +1533,11 @@ namespace G1Pipe
                 );
             }
             if (m_Step == 5)
-                return; // caught: hold it there
+            {
+                if (!AwaitStill(m_StepTime, "before grasping the caught box"))
+                    EnterGrasp();
+                return; // caught: hold it there until the body is still, then grasp
+            }
             if (past > m_HalfW || ChuteGap(m_Box) < -0.05f || m_PhaseTime > PhaseTimeout)
             {
                 Fail(
@@ -1509,9 +1553,33 @@ namespace G1Pipe
             if (m_StepTime < CatchTime)
                 return;
             Log.Info(
-                $"[G1] caught box {m_Box} after {m_PhaseTime:F2} s: {-past:F3} m short of the stop spot, came at up to {m_PeakSpeed:F2} m/s, gave {m_Give:F3} m, hand force up to {m_PeakForce:F1} N, now {s.Force:F1} N | holding it there"
+                $"[G1] caught box {m_Box} after {m_PhaseTime:F2} s: {-past:F3} m short of the stop spot, came at up to {m_PeakSpeed:F2} m/s, gave {m_Give:F3} m, hand force up to {m_PeakForce:F1} N, now {s.Force:F1} N | holding it there for the grasp"
             );
-            m_Step = 5;
+            NextStep();
+        }
+
+        // Caught -> grasp: grip frame from the box as it rests on the stopper, which keeps holding it (m_Holder: palm on its face, no pre-grip);
+        // the reach is planned and checked as for any grasp (Reachable), then the other hand glides to its pre-grip point in front of the box
+        // while the stopper moves up its face to grip height, and PreGrasp slides the other hand in.
+        private void EnterGrasp()
+        {
+            m_Holder = Stopper;
+            SetGripFrame(m_Fwd);
+            m_Carrying = false;
+            m_Lift = 0f;
+            m_Boost = 1f;
+            m_PickAt = m_BoxAt = BoxCenter(m_Box);
+            m_Reach = StandDistance;
+            m_Repositions = m_SqueezeTries = m_WalkRetries = 0;
+            SetSafeY();
+            if (!Reachable())
+                return;
+            m_Holder.Gap = 0f;
+            Log.Info(
+                $"[G1] grasping the caught box: {m_Holder.Name} hand holds it, {(m_Holder == m_Arms[0] ? m_Arms[1] : m_Arms[0]).Name} hand reaches in | {GripInfo()}"
+            );
+            GlideTo(HandMoveSpeed);
+            Advance(Phase.PreGrasp);
         }
 
         // Both hands start one straight min-jerk move from their current IK targets to HandTarget, both taking the time the longer one needs at
@@ -1536,7 +1604,7 @@ namespace G1Pipe
         // within ReachTolerance - or beside the box faces (Placed) and no longer improving. Hands that stall short adapt (GraspOutOfReach).
         private void StepPreGrasp(float ts)
         {
-            if (!Track(true))
+            if (!Track(m_Holder == null)) // a held box stays put: following it would let the holding palm chase it
                 return;
             SendHands(HandTarget, false);
             LogPreGrasp(ts);
@@ -1548,7 +1616,7 @@ namespace G1Pipe
             ReadForces();
             if (m_Step == 1)
                 foreach (Arm a in m_Arms)
-                    if (a.Force > TouchForce)
+                    if (a != m_Holder && a.Force > TouchForce)
                     {
                         if (a.Gap <= ApproachGap)
                             Log.Warn(
@@ -1589,7 +1657,7 @@ namespace G1Pipe
             Tare();
             m_Slide = 0f;
             foreach (Arm a in m_Arms)
-                a.Gap = ApproachGap;
+                a.Gap = a == m_Holder ? 0f : ApproachGap;
             GlideTo(k_SlideSpeed);
             NextStep();
         }
@@ -1727,7 +1795,7 @@ namespace G1Pipe
         // stops building with a hand at its squeeze limit (palm gap and finger curl both maxed) is reopened and re-centred (MaxSqueezeTries).
         private void StepSqueeze(float ts)
         {
-            if (!Track(Contact() < TouchForce))
+            if (!Track(m_Holder == null && Contact() < TouchForce))
                 return;
             SendHands(HandTarget, false);
             float req = RequiredForce(),
@@ -1750,6 +1818,7 @@ namespace G1Pipe
                     $"[G1] grip: palm L={m_Arms[0].PalmForce:F1} R={m_Arms[1].PalmForce:F1} N (need {need:F1} of {req:F1} N), fingers L={m_Arms[0].Force - m_Arms[0].PalmForce:F1} R={m_Arms[1].Force - m_Arms[1].PalmForce:F1} N, thumb L={m_Arms[0].ThumbForce:F1} R={m_Arms[1].ThumbForce:F1} N, curl L={m_Arms[0].Curl:F2} R={m_Arms[1].Curl:F2} rad, gap L={m_Arms[0].Gap:F3} R={m_Arms[1].Gap:F3} m"
                 );
                 m_Y0 = PalmMidY() - BoxCenter(m_Box).Y;
+                m_Holder = null; // both hands hold it now
                 m_Slot = m_Center - Vector3.Up * m_HalfH; // pick spot (bottom centre): where the box goes back when not carried to the table
                 m_Repositions = 0;
                 bool far = GripAhead() > k_DragFrom;
@@ -1784,7 +1853,7 @@ namespace G1Pipe
             SetGripFrame(m_Fwd);
             foreach (Arm a in m_Arms)
             {
-                a.Gap = ApproachGap;
+                a.Gap = a == m_Holder ? 0f : ApproachGap; // a holding hand stays on its face
                 a.PalmOn = false;
             }
             Advance(Phase.PreGrasp);
@@ -2531,7 +2600,7 @@ namespace G1Pipe
         }
 
         // Hand target at its front-bottom box corner: palm PalmOffset + Gap outside the side face, grasp site FrontInset behind the front face
-        // (straight thumb across the front face, fingers along the side) + m_Slide (- = in front of the box), GripHeight up, + m_Lift; while
+        // (straight thumb across the front face, fingers along the side) + m_Slide (- = in front of the box; not for a holding hand), GripHeight up, + m_Lift; while
         // reaching for the box, never lower than GripHeight over the conveyor surface under it.
         private Vector3 HandTarget(Arm a)
         {
@@ -2541,7 +2610,7 @@ namespace G1Pipe
             Vector3 t =
                 c
                 + lat * (a.Side * (m_HalfW + PalmOffset + a.Gap))
-                + fwd * (FrontInset - m_HalfD + m_Slide)
+                + fwd * (FrontInset - m_HalfD + (a == m_Holder ? 0f : m_Slide))
                 + Vector3.Up * (GripHeight(a) - m_HalfH + m_Lift);
             if (!m_Carrying && m_Phase is Phase.PreGrasp or Phase.Squeeze)
                 t.Y = Math.Max(t.Y, SurfaceY(t) + GripHeight(a));
@@ -2998,6 +3067,7 @@ namespace G1Pipe
                 Log.Warn($"[G1] skipping box {m_Box} until it moves");
             }
             m_Retry = retry;
+            m_Holder = null;
             Advance(Phase.Recover);
             SendHands(Fold, true); // after the phase change, so hands that were gripping still leave along the safe path
         }
