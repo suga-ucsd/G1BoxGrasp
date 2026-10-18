@@ -64,9 +64,10 @@ namespace G1Pipe
             public float ThumbForce,
                 PalmForce; // tared thumb contact force on the front face; palm-only share of Force (N)
             public bool PalmOn; // the palm has reached its face in this grip (fingers may curl)
-            public bool Capped; // its IK target is being pulled in to k_MaxReach of the shoulder
+            public bool Capped; // its IK target is being pulled in to MaxReach of the shoulder
             public float Thumb,
-                Curl; // thumb swing back from straight, index + middle curl (rad; right hand mirrored)
+                Tip,
+                Curl; // thumb swing back from straight (- = in), thumb tip bend, index + middle curl (rad; right hand mirrored)
             public Vector3 Cmd,
                 From,
                 To; // IK target actually sent; ends of the path segment being run (SendHands)
@@ -126,18 +127,13 @@ namespace G1Pipe
         private const float k_TurnRate = 0.7f,
             k_TurnRampIn = 0.5f; // rotator: max rad/s, ramp-in s
         private const float k_WalkProgress = 0.02f,
-            k_TurnProgress = 0.02f,
-            k_ReachProgress = 0.005f; // m, rad, m: smallest gain that counts as progress
+            k_TurnProgress = 0.02f; // m, rad: smallest gain that counts as progress
         private const float k_RestSpeed = 0.02f; // m/s, box counts as resting
         private const float k_DepthGain = 0.002f,
-            k_MaxSqueezeRate = 0.02f,
-            k_MaxSqueezeDepth = 0.03f; // squeeze admittance: m/(N*s), m/s, m
+            k_MaxSqueezeRate = 0.02f; // squeeze admittance: m/(N*s), m/s
         private const float k_SqueezeMargin = 1.25f,
             k_GripConfirm = 0.5f; // palms press toward this x the required force; grip OK: both palms on their faces and each hand (palm + fingers) >= the required force for 0.5 s
-        private const float k_TouchForce = 2f; // N, a hand this loaded is already at the box
-        private const float k_LiftSpeed = 0.05f,
-            k_SlipTol = 0.01f,
-            k_DropTol = 0.05f; // m/s, m, m
+        private const float k_LiftSpeed = 0.05f; // m/s
         private const float k_CarrySpeed = 0.1f; // m/s, box moves in the hands
         private const float k_PlaceHover = 0.05f,
             k_PlaceLowerSpeed = 0.03f; // m, m/s
@@ -148,8 +144,7 @@ namespace G1Pipe
         private const float k_Widen = 0.05f; // m, a hand landing on the box slides out at most this far
         private const float k_WristGain = 2f,
             k_WristRate = 1f; // wrist servo: rad/s per rad of palm error, cap
-        private const float k_ThumbFlare = 0.72f,
-            k_ThumbRate = 1.5f; // rad thumb swung back (open); rad/s it swings
+        private const float k_ThumbRate = 1.5f; // rad/s the thumb swings
         private const float k_MaxCurl = 0.8f,
             k_CurlRate = 0.5f; // rad index + middle curl at most into the side face; rad/s they curl while the grip is short
         private const float k_ThumbStagger = 0.018f; // m, left hand raised 2x this over the right so the straight thumbs pass
@@ -162,19 +157,14 @@ namespace G1Pipe
             k_SeedBlend = 0.5f; // s shortest path segment; s IK re-seed blend (eases any change of arm pose)
         private const float k_PalmHalf = 0.044f,
             k_SiteOffset = 0.01f; // m (MJCF): palm half-height about the wrist axis; grasp site below (left) / above (right) it
-        private const float k_StillSpeed = 0.05f,
-            k_StillTime = 0.5f,
-            k_StillLog = 4f,
-            k_HandLever = 0.45f; // body still: hands carried under this m/s for this many s straight; s between "waiting" lines; m pelvis -> hands
+        private const float k_StillLog = 4f,
+            k_HandLever = 0.45f; // s between "waiting for the body" lines; m pelvis -> hands
 
         // Approach (lining the body up with the box), from the walker test: smallest commands that step (side 0.4, forward 0.6, back 0.4 m/s)
         // move ~10-20 cm per 0.25 s burst after coasting ~1 s; a 2 rad/s turn command turns in place (~57 deg/s, ~2 deg coast).
-        private const float k_AlignYaw = 0.14f,
-            k_TurnStop = 0.1f,
+        private const float k_TurnStop = 0.1f,
             k_TurnCmd = 2f,
-            k_TurnMax = 3f; // rad facing tolerance; rad short of the aim a turn stops (coast); rad/s turn command; s longest turn
-        private const float k_AlignSide = 0.06f,
-            k_AlignFwd = 0.05f; // m: box centre off the straight-ahead line; front face off FaceDistance
+            k_TurnMax = 3f; // rad short of the aim a turn stops (coast); rad/s turn command; s longest turn
         private const float k_SideCmd = 0.4f,
             k_FwdCmd = 0.6f,
             k_BackCmd = 0.4f,
@@ -188,20 +178,14 @@ namespace G1Pipe
         private const float k_PreFront = 0.10f,
             k_PreWiden = 0.03f,
             k_SlideSpeed = 0.10f; // m pre-grip sites ahead of the grip sites' spot (5 cm in front of the front face); m extra gap; m/s slide in
-        private const float k_MinSide = 0.11f,
-            k_MaxGripUp = 0.15f; // m a grip site may come to the body's centre line; m over the pelvis it should stay under
         private const float k_DragFrom = 0.35f,
             k_DragTo = 0.30f,
             k_DragSpeed = 0.08f,
             k_DragLag = 0.05f; // m ahead beyond which a gripped box is dragged in, to this; m/s; m the box may trail the hands
-        private const float k_PlanReach = 0.93f,
-            k_MaxReach = 0.95f; // share of the arm every hand target of a reach must lie within (else the attempt fails); hard cap on any IK target
-        private const float k_ArmLength = 0.517f,
-            k_Comfort = 0.85f; // m shoulder -> grasp site at full stretch (MJCF); share of it the grip is planned for
-        private const float k_TopMargin = 0.02f,
-            k_PlacedWait = 0.5f; // m grasp site stays under the box top; s a placed hand must stop improving
-        private const float k_Disturb = 0.02f,
-            k_LostDist = 0.25f; // m box moves logged as a disturbance; m that count as the box gone
+        private float PlanReach => HandLimit / 100f;
+        private float MaxReach => IKTargetLimit / 100f;
+        private const float k_ArmLength = 0.517f; // m shoulder -> grasp site at full stretch (MJCF)
+        private const float k_Disturb = 0.02f; // m box moves logged as a disturbance
         private static readonly Vector3[] s_Axes =
         {
             new Vector3(1f, 0f, 0f),
@@ -293,14 +277,89 @@ namespace G1Pipe
         [Group("Arms")]
         public float HandMoveSpeed = 0.2f; // m/s average along each hand path segment (min-jerk: eases in and out, peaks at ~1.9x this)
 
-        [Group("Arms")]
+        [Group("Tolerances")]
         public float ReachTolerance = 0.05f; // m, grasp site this close to its target = in position
+
+        [Group("Tolerances")]
+        public float ReachProgress = 0.005f; // m, smallest drop in hand error that counts as progress (else the hand has stalled short)
+
+        [Group("Tolerances")]
+        public float PlacedInside = 0.015f; // m a palm may press into its side face and still count as beside the box
+
+        [Group("Tolerances")]
+        public float PlacedFront = 0.03f; // m the thumb may sit off the front face and still count as beside the box
+
+        [Group("Tolerances")]
+        public float PlacedTop = 0.01f; // m a grasp site must stay under the box top to count as beside it (negative: may ride over)
+
+        [Group("Tolerances")]
+        public float PlacedWait = 0.5f; // s hands beside the box (but not within ReachTolerance) must stop improving before the grasp
+
+        [Group("Tolerances")]
+        public float TopMargin = 0.02f; // m a raised grip keeps its grasp sites under the box top
+
+        [Group("Tolerances")]
+        public float AlignYawDeg = 8f; // deg Approach may face off the box
+
+        [Group("Tolerances")]
+        public float AlignSide = 0.06f; // m the box centre may sit off the straight-ahead line after Approach
+
+        [Group("Tolerances")]
+        public float AlignForward = 0.05f; // m the front face may sit off FaceDistance after Approach
+
+        [Group("Tolerances")]
+        public float MinSide = 0.11f; // m a grip point must stay off the body's centre line, else the reach fails
+
+        [Group("Tolerances")]
+        public float MaxGripUp = 0.15f; // m over the pelvis a grip point may sit before a warning
+
+        [Group("Tolerances")]
+        public float StillSpeed = 0.05f; // m/s at the hands under which the body counts as still
+
+        [Group("Tolerances")]
+        public float StillTime = 0.5f; // s the body must stay still before a reach or slide in
+
+        [Group("Tolerances")]
+        public float TouchForce = 2f; // N, a hand this loaded is at the box
+
+        [Group("Tolerances")]
+        public float SlipTolerance = 0.01f; // m the box may slip down the palms before the lift pauses and squeezes harder
+
+        [Group("Tolerances")]
+        public float DropTolerance = 0.05f; // m of slip that counts as the box dropped
+
+        [Group("Tolerances")]
+        public float LostDistance = 0.25f; // m the box may move from where the reach started before it counts as gone
 
         [Group("Arms")]
         public float LiftHeight = 0.08f; // m
 
         [Group("Arms")]
         public float GripSafetyFactor = 2f; // squeeze per hand = factor * m*g / (2*mu)
+
+        [Group("Arms")]
+        public float MaxSqueezeDepth = 0.03f; // m past its side face a palm's target may go while squeezing (covers arm tracking error)
+
+        [Group("Arms")]
+        public float GripForceLimit = 100f; // % of the required squeeze each hand must hold for the grip to count (lower it if squeezes stall short)
+
+        [Group("Thumb")]
+        public float ThumbOpenDeg = 41.25f; // deg the thumb swings back (out) while not gripping (joint limit 41.5)
+
+        [Group("Thumb")]
+        public float ThumbGripDeg = 0f; // deg the thumb swings in past straight while gripping (0 = straight across the front face; joint limit 60)
+
+        [Group("Thumb")]
+        public float ThumbTipDeg = 0f; // deg the thumb tip bends in while gripping (0 = straight; joint limit 100)
+
+        [Group("Arms")]
+        public float GripComfort = 85f; // % of the arm the grip is planned within: a grip lower than that is raised up the box (up to TopMargin under its top)
+
+        [Group("Arms")]
+        public float HandLimit = 93f; // % of the arm every hand target of a reach must lie within (from the standing pose), else the attempt fails
+
+        [Group("Arms")]
+        public float IKTargetLimit = 95f; // % of the arm from the shoulder (each frame) any IK target is pulled in to; >= 100 lets the arm lock straight
 
         [Group("Arms")]
         public float ArmReach = 0.50f; // m, shoulder -> grasp site at full stretch (MJCF: 0.517); a grip lower than this below the shoulders is unreachable
@@ -385,7 +444,7 @@ namespace G1Pipe
             m_SqueezeTries; // retries used in the current turn / walk goal / reach / grip
         private float m_Reach; // m, current pelvis -> box (or slot) stand distance; shrinks on failed reaches
         private bool m_Retry; // Recover goes back for the next box (else stops)
-        private float m_Still; // s the body has been still without a break (BodyMotion under k_StillSpeed)
+        private float m_Still; // s the body has been still without a break (BodyMotion under StillSpeed)
         private float m_Slide; // m the hand targets sit ahead of the grip (- = in front of the box: the pre-grip points)
         private int m_Moves; // approach corrections made for the current attempt
         private Vector3 m_ApCmd; // approach: command of the current correction (vx, vy, yaw rate)
@@ -604,7 +663,7 @@ namespace G1Pipe
                 return;
             m_Dt = ts;
             if (m_PelvisId != uint.MaxValue)
-                m_Still = BodyMotion() < k_StillSpeed ? m_Still + ts : 0f;
+                m_Still = BodyMotion() < StillSpeed ? m_Still + ts : 0f;
             m_PhaseTime += ts;
             m_StepTime += ts;
             m_SinceBest += ts;
@@ -901,26 +960,26 @@ namespace G1Pipe
                     EnterReady();
                     return;
                 }
-                if (Math.Abs(off) > k_AlignYaw)
+                if (Math.Abs(off) > AlignYawDeg * Mathf.Deg2Rad)
                 {
                     m_ApTurnTo = YawOf(m_Fwd);
                     m_ApCmd = new Vector3(0f, 0f, Math.Sign(off) * k_TurnCmd);
                     m_ApTime = k_TurnMax;
                     why = $"turning in place {(off > 0f ? "left" : "right")}";
                 }
-                else if (Math.Abs(side) > k_AlignSide)
+                else if (Math.Abs(side) > AlignSide)
                 {
                     m_ApCmd = new Vector3(0f, Math.Sign(side) * k_SideCmd, 0f);
                     m_ApTime = Math.Abs(side) > 0.2f ? k_LongBurst : k_Burst;
                     why = $"side-stepping {(side > 0f ? "left" : "right")} ({m_ApTime:F2} s burst)";
                 }
-                else if (face > FaceDistance + k_AlignFwd && room > 0.1f)
+                else if (face > FaceDistance + AlignForward && room > 0.1f)
                 {
                     m_ApCmd = new Vector3(k_FwdCmd, 0f, 0f);
                     m_ApTime = k_Burst;
                     why = $"stepping forward ({m_ApTime:F2} s burst)";
                 }
-                else if (face < FaceDistance - k_AlignFwd)
+                else if (face < FaceDistance - AlignForward)
                 {
                     m_ApCmd = new Vector3(-k_BackCmd, 0f, 0f);
                     m_ApTime = face < FaceDistance - 0.15f ? k_LongBurst : k_Burst;
@@ -995,7 +1054,7 @@ namespace G1Pipe
         }
 
         // Grip planned from the live shoulders, then the reach checked from where the robot stands: every hand target (pre-grip in front of the
-        // box, and beside it) within k_PlanReach of its shoulder, grip points at least k_MinSide off the body's centre line (Approach has lined the body up as close as the conveyor edge allows), else the attempt
+        // box, and beside it) within PlanReach of its shoulder, grip points at least MinSide off the body's centre line (Approach has lined the body up as close as the conveyor edge allows), else the attempt
         // fails here (retried; the box is skipped after MaxBoxAttempts). Logs how the body stands to the box.
         private bool Reachable()
         {
@@ -1013,26 +1072,26 @@ namespace G1Pipe
                 );
                 up = Math.Max(up, GripPoint(a).Y - Pelvis().Y);
             }
-            if (side < k_MinSide)
+            if (side < MinSide)
             {
                 Fail(
-                    $"box too narrow or off-centre for the arms: a grip point comes within {side:F2} m of the body's centre line (needs {k_MinSide:F2})"
+                    $"box too narrow or off-centre for the arms: a grip point comes within {side:F2} m of the body's centre line (needs {MinSide:F2})"
                 );
                 return false;
             }
-            if (up > k_MaxGripUp)
+            if (up > MaxGripUp)
                 Log.Warn(
-                    $"[G1] grip points {up:F2} m over the pelvis (arms are accurate up to {k_MaxGripUp:F2}) - reaching anyway"
+                    $"[G1] grip points {up:F2} m over the pelvis (arms are accurate up to {MaxGripUp:F2}) - reaching anyway"
                 );
             float off = Mathf.WrapToPi(YawOf(m_Fwd) - YawOf(Heading())),
                 face = Vector3.Dot(Flat(m_Center - Pelvis()), m_Fwd) - m_HalfD,
                 reach = ReachShare(out string which);
             string state =
                 $"facing {off * Mathf.Rad2Deg:F0} deg off the box, front face {face:F2} m ahead, farthest hand target {reach * 100f:F0}% of the arm ({which})";
-            if (reach > k_PlanReach)
+            if (reach > PlanReach)
             {
                 Fail(
-                    $"box out of reach from where the robot stands: {state} (limit {k_PlanReach * 100f:F0}%) - move the robot or the box, or lower EdgeClearance so it can stand closer"
+                    $"box out of reach from where the robot stands: {state} (limit {PlanReach * 100f:F0}%) - move the robot or the box, or lower EdgeClearance so it can stand closer"
                 ); // retried; skipped after MaxBoxAttempts
                 return false;
             }
@@ -1040,11 +1099,11 @@ namespace G1Pipe
             return true;
         }
 
-        // Waits for k_StillTime of unbroken stillness, saying so every k_StillLog s; after PhaseTimeout of waiting the attempt fails (no reach on
+        // Waits for StillTime of unbroken stillness, saying so every k_StillLog s; after PhaseTimeout of waiting the attempt fails (no reach on
         // a moving body). True while still waiting (or just failed).
         private bool AwaitStill(float waited, string where)
         {
-            if (m_Still >= k_StillTime)
+            if (m_Still >= StillTime)
                 return false;
             if (waited > PhaseTimeout)
             {
@@ -1060,12 +1119,12 @@ namespace G1Pipe
             return true;
         }
 
-        // Grip height from the live shoulders: raised up the box until each grasp site is within k_Comfort of the arm's reach, up to k_TopMargin
+        // Grip height from the live shoulders: raised up the box until each grasp site is within GripComfort of the arm's reach, up to TopMargin
         // under its top; if even that isn't enough, says by how much the box sits too low. Logs the plan.
         private void PlanGrip()
         {
             m_GripLift = 0f;
-            float reach = k_Comfort * k_ArmLength,
+            float reach = GripComfort / 100f * k_ArmLength,
                 need = 0f,
                 maxLift = MaxGripLift();
             foreach (Arm a in m_Arms)
@@ -1094,10 +1153,10 @@ namespace G1Pipe
             + m_Fwd * (FrontInset - m_HalfD)
             + Vector3.Up * (GripHeight(a) - m_HalfH);
 
-        // How far the grip can still rise before a grasp site comes within k_TopMargin of the box top.
+        // How far the grip can still rise before a grasp site comes within TopMargin of the box top.
         private float MaxGripLift() =>
             2f * m_HalfH
-            - k_TopMargin
+            - TopMargin
             - Math.Max(GripHeight(m_Arms[0]), GripHeight(m_Arms[1]))
             + m_GripLift;
 
@@ -1109,11 +1168,11 @@ namespace G1Pipe
             side = a.Side * Vector3.Dot(p, m_Lat) - m_HalfW - PalmOffset;
             front = Vector3.Dot(p, m_Fwd) + m_HalfD - FrontInset;
             up = p.Y + m_HalfH;
-            return side > -0.015f
+            return side > -PlacedInside
                 && side < ApproachGap + k_Widen
-                && Math.Abs(front) < 0.03f
+                && Math.Abs(front) < PlacedFront
                 && up > PalmBelow(a)
-                && up < 2f * m_HalfH - 0.01f;
+                && up < 2f * m_HalfH - PlacedTop;
         }
 
         private bool BothPlaced() =>
@@ -1126,7 +1185,7 @@ namespace G1Pipe
             Vector3 c = BoxCenter(m_Box);
             float gone = Flat(c - m_PickAt).Length(),
                 moved = (c - m_BoxAt).Length();
-            if (gone > k_LostDist || ChuteGap(m_Box) > 0.05f)
+            if (gone > LostDistance || ChuteGap(m_Box) > 0.05f)
             {
                 Fail(
                     $"box left the grasp: {gone:F2} m from where the reach started, {ChuteGap(m_Box):F2} m off the conveyor"
@@ -1156,7 +1215,7 @@ namespace G1Pipe
             return true;
         }
 
-        // Ready: once the body has been still for k_StillTime straight and every hand target is in reach (Reachable), both hands glide together
+        // Ready: once the body has been still for StillTime straight and every hand target is in reach (Reachable), both hands glide together
         // in one straight move from the fold to the pre-grip points - grip height, k_PreFront in front of the box, k_PreWiden wider - (PreGrasp).
         private void StepReady()
         {
@@ -1206,7 +1265,7 @@ namespace G1Pipe
             ReadForces();
             if (m_Step == 1)
                 foreach (Arm a in m_Arms)
-                    if (a.Force > k_TouchForce)
+                    if (a.Force > TouchForce)
                     {
                         if (a.Gap <= ApproachGap)
                             Log.Warn(
@@ -1215,10 +1274,10 @@ namespace G1Pipe
                         a.Gap = Math.Min(a.Gap + k_OpenSpeed * ts, ApproachGap + k_Widen);
                     }
             float err = Math.Max(HandError(m_Arms[0]), HandError(m_Arms[1]));
-            bool stalled = err > ReachTolerance && Stalled(err, k_ReachProgress, PhaseTimeout);
+            bool stalled = err > ReachTolerance && Stalled(err, ReachProgress, PhaseTimeout);
             if (
                 m_Step == 1
-                && (err <= ReachTolerance || (BothPlaced() && m_SinceBest > k_PlacedWait))
+                && (err <= ReachTolerance || (BothPlaced() && m_SinceBest > PlacedWait))
             )
             {
                 if (err > ReachTolerance)
@@ -1385,26 +1444,27 @@ namespace G1Pipe
         // stops building with a hand at its squeeze limit (palm gap and finger curl both maxed) is reopened and re-centred (MaxSqueezeTries).
         private void StepSqueeze(float ts)
         {
-            if (!Track(Contact() < k_TouchForce))
+            if (!Track(Contact() < TouchForce))
                 return;
             SendHands(HandTarget, false);
-            float req = RequiredForce();
+            float req = RequiredForce(),
+                need = req * GripForceLimit / 100f;
             Squeeze(ts, req);
             LogGrip(ts);
             bool stuck = false;
             foreach (Arm a in m_Arms)
             {
-                bool held = a.PalmOn && a.Force >= req; // palm has reached its face; palm + fingers hold the required force
+                bool held = a.PalmOn && a.Force >= need; // palm has reached its face; palm + fingers hold GripForceLimit of the required force
                 if (!held)
                     m_StepTime = 0f;
-                stuck |= !held && a.Gap <= 0.001f - k_MaxSqueezeDepth;
+                stuck |= !held && a.Gap <= 0.001f - MaxSqueezeDepth;
             }
             if (!stuck)
                 m_SinceBest = 0f; // still closing or holding: that's progress
             if (m_StepTime >= k_GripConfirm)
             {
                 Log.Info(
-                    $"[G1] grip: palm L={m_Arms[0].PalmForce:F1} R={m_Arms[1].PalmForce:F1} N (need {req:F1} N), fingers L={m_Arms[0].Force - m_Arms[0].PalmForce:F1} R={m_Arms[1].Force - m_Arms[1].PalmForce:F1} N, thumb L={m_Arms[0].ThumbForce:F1} R={m_Arms[1].ThumbForce:F1} N, curl L={m_Arms[0].Curl:F2} R={m_Arms[1].Curl:F2} rad, gap L={m_Arms[0].Gap:F3} R={m_Arms[1].Gap:F3} m"
+                    $"[G1] grip: palm L={m_Arms[0].PalmForce:F1} R={m_Arms[1].PalmForce:F1} N (need {need:F1} of {req:F1} N), fingers L={m_Arms[0].Force - m_Arms[0].PalmForce:F1} R={m_Arms[1].Force - m_Arms[1].PalmForce:F1} N, thumb L={m_Arms[0].ThumbForce:F1} R={m_Arms[1].ThumbForce:F1} N, curl L={m_Arms[0].Curl:F2} R={m_Arms[1].Curl:F2} rad, gap L={m_Arms[0].Gap:F3} R={m_Arms[1].Gap:F3} m"
                 );
                 m_Y0 = PalmMidY() - BoxCenter(m_Box).Y;
                 m_Slot = m_Center - Vector3.Up * m_HalfH; // pick spot (bottom centre): where the box goes back when not carried to the table
@@ -1421,7 +1481,7 @@ namespace G1Pipe
                 );
             }
             else if (m_SinceBest > StallTime || m_WatchTime > PhaseTimeout)
-                RetrySqueeze(req);
+                RetrySqueeze(need);
         }
 
         // Grip didn't build: reopen (fingers ease straight, thumbs back), re-measure the box and re-centre the hands beside it, then grasp again;
@@ -1660,7 +1720,7 @@ namespace G1Pipe
 
         // Arm test trial target pair, in pelvis coords (forward, up, left) when it starts. Random: centre 0.25-0.40 m ahead, 0-0.30 m over the
         // pelvis, up to 0.08 m off centre; hands 0.10-0.22 m either side of it (boxes ~0.16-0.40 m wide), resampled until both are within
-        // k_PlanReach. Sweep (ArmTestSweep): the next s_ArmSweep entry, whatever its reach.
+        // PlanReach. Sweep (ArmTestSweep): the next s_ArmSweep entry, whatever its reach.
         private bool PickArmTrial()
         {
             float R(float lo, float hi) => lo + (float)m_Rng.NextDouble() * (hi - lo);
@@ -1685,7 +1745,7 @@ namespace G1Pipe
                     r = BodyPoint(new Vector3(f, up, c - w));
                 float rl = (l - BodyPos(m_Arms[0].Shoulder)).Length() / k_ArmLength,
                     rr = (r - BodyPos(m_Arms[1].Shoulder)).Length() / k_ArmLength;
-                if (!ArmTestSweep && Math.Max(rl, rr) > k_PlanReach)
+                if (!ArmTestSweep && Math.Max(rl, rr) > PlanReach)
                     continue;
                 float v =
                     sw.Sweep == "height" ? up
@@ -1715,7 +1775,7 @@ namespace G1Pipe
             {
                 case 0:
                     SendHands(Fold, false);
-                    if (m_StepTime < k_ArmSettle || (m_Still < k_StillTime && m_StepTime < 10f))
+                    if (m_StepTime < k_ArmSettle || (m_Still < StillTime && m_StepTime < 10f))
                         return;
                     if (!PickArmTrial())
                     {
@@ -1846,7 +1906,7 @@ namespace G1Pipe
                 case 0:
                     if (
                         m_StepTime < k_TestSettle
-                        || (m_Still < k_StillTime && m_StepTime < k_TestWait)
+                        || (m_Still < StillTime && m_StepTime < k_TestWait)
                     )
                         return;
                     m_TestFrom = Pelvis();
@@ -1932,12 +1992,12 @@ namespace G1Pipe
             SendHands(HandTarget, false);
             LogGrip(ts);
             float slip = PalmMidY() - BoxCenter(m_Box).Y - m_Y0; // + = box sliding down between the palms
-            if (slip > k_DropTol)
+            if (slip > DropTolerance)
             {
                 Fail($"box slipped out of the hands ({slip:F3} m)");
                 return false;
             }
-            if (slip > k_SlipTol)
+            if (slip > SlipTolerance)
                 m_Boost = Math.Min(m_Boost + ts, 2f);
             return true;
         }
@@ -1956,10 +2016,10 @@ namespace G1Pipe
                             -k_MaxSqueezeRate,
                             k_MaxSqueezeRate
                         ) * ts,
-                    -k_MaxSqueezeDepth,
+                    -MaxSqueezeDepth,
                     ApproachGap + k_Widen
                 );
-                if (!a.PalmOn && a.PalmForce >= k_TouchForce)
+                if (!a.PalmOn && a.PalmForce >= TouchForce)
                 {
                     a.PalmOn = true;
                     Log.Info(
@@ -2182,7 +2242,7 @@ namespace G1Pipe
         private Vector3 Corner(float side) =>
             m_Center + m_Lat * (side * m_HalfW) - m_Fwd * m_HalfD - Vector3.Up * m_HalfH;
 
-        // Thumbs flared back (open) except while gripping, when they swing straight across the front face; index + middle follow a.Curl while
+        // Thumbs flared back (ThumbOpenDeg) except while gripping, when they swing to ThumbGripDeg past straight with the tip bent ThumbTipDeg; index + middle follow a.Curl while
         // gripping (Squeeze curls them in) and ease straight otherwise. Everything moves at a set rate - nothing snaps into the box.
         private void PoseHands(float ts)
         {
@@ -2191,15 +2251,23 @@ namespace G1Pipe
             {
                 if (a.Hand.Length < 4)
                     continue;
+                float open = Math.Clamp(ThumbOpenDeg, 0f, 41.5f) * Mathf.Deg2Rad,
+                    shut = Math.Clamp(ThumbGripDeg, 0f, 60f) * Mathf.Deg2Rad,
+                    tip = Math.Clamp(ThumbTipDeg, 0f, 100f) * Mathf.Deg2Rad;
                 a.Thumb += Mathf.Clamp(
-                    (grip ? 0f : k_ThumbFlare) - a.Thumb,
+                    (grip ? -shut : open) - a.Thumb,
+                    -k_ThumbRate * ts,
+                    k_ThumbRate * ts
+                );
+                a.Tip += Mathf.Clamp(
+                    (grip ? tip : 0f) - a.Tip,
                     -k_ThumbRate * ts,
                     k_ThumbRate * ts
                 );
                 if (!grip)
                     a.Curl = Math.Max(0f, a.Curl - 2f * k_CurlRate * ts);
                 a.Hand[0].Value = -a.Side * a.Thumb;
-                a.Hand[1].Value = 0.0;
+                a.Hand[1].Value = a.Side * a.Tip;
                 a.Hand[2].Value = a.Hand[3].Value = -a.Side * a.Curl;
             }
         }
@@ -2315,16 +2383,16 @@ namespace G1Pipe
             m_Robot.SetInputTrigger(s_Start);
         }
 
-        // Sends a hand's IK target and elbow pole. Cap: a target beyond k_MaxReach of the shoulder is pulled in toward it (logged when the cap
+        // Sends a hand's IK target and elbow pole. Cap: a target beyond MaxReach of the shoulder is pulled in toward it (logged when the cap
         // starts and stops).
         private void SendTarget(Arm a)
         {
             Vector3 t = a.Cmd,
                 d = t - BodyPos(a.Shoulder);
-            float max = k_MaxReach * k_ArmLength;
+            float max = MaxReach * k_ArmLength;
             if (d.Length() > max != a.Capped)
                 Log.Warn(
-                    $"[G1] {a.Name} IK target {(d.Length() > max ? $"{d.Length() / k_ArmLength * 100f:F0}% of the arm away -> pulled in to {k_MaxReach * 100f:F0}%" : "back within reach")} in {m_Phase}"
+                    $"[G1] {a.Name} IK target {(d.Length() > max ? $"{d.Length() / k_ArmLength * 100f:F0}% of the arm away -> pulled in to {MaxReach * 100f:F0}%" : "back within reach")} in {m_Phase}"
                 );
             a.Capped = d.Length() > max;
             m_Robot!.SetInputVector3(a.Target, a.Capped ? t - d * (1f - max / d.Length()) : t);
