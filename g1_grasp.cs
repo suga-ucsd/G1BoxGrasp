@@ -68,7 +68,7 @@ namespace G1Pipe
             public bool[] IsPalm = new bool[0]; // which hand geoms are the palm (wrist_yaw_link)
             public float ThumbForce,
                 PalmForce; // tared thumb contact force on the front face; palm-only share of Force (N)
-            public bool PalmOn; // the palm has reached its face in this grip (fingers may curl)
+            public bool PalmOn; // the palm is on its face now (fingers may curl only while it is)
             public bool Capped; // its IK target is being pulled in to MaxReach of the shoulder
             public float Thumb,
                 Tip,
@@ -164,7 +164,8 @@ namespace G1Pipe
         private const float k_ThumbRate = 1.5f; // rad/s the thumb swings
         private const float k_MaxCurl = 0.8f,
             k_CurlRate = 0.5f; // rad index + middle curl at most into the side face; rad/s they curl while the grip is short
-        private const float k_ThumbStagger = 0.018f; // m, left hand raised 2x this over the right so the straight thumbs pass
+        private const float k_ThumbStagger = 0.018f,
+            k_ThumbReach = 0.095f; // m, left hand raised 2x this over the right so the straight thumbs pass; m a straight thumb reaches across the front face past its palm (MJCF)
         private const float k_Snap = 0.05f,
             k_LocalMove = 0.10f,
             k_SafeMargin = 0.10f; // m: target tracked directly within this; shorter moves across go straight; travel height over belt and boxes
@@ -1562,9 +1563,10 @@ namespace G1Pipe
 
         // Caught -> grasp. The stopper becomes the holder: its target is pinned where its IK command is now (HoldHere), so it doesn't move -
         // later only its Gap (the squeeze), the lift and the carry move it. The other hand comes in as in any grasp: the grip frame from the
-        // box as it rests on the holder, its pre-grip point in front of the box, its palm 2 x k_ThumbStagger over the holder's (the straight
-        // thumbs pass) up to TopMargin under the box top, checked within PlanReach (a grip near the body's centre line only warns); then it
-        // glides there from the fold and PreGrasp slides it in.
+        // box as it rests on the holder, its pre-grip point in front of the box, its palm level with the holder's - or, on a box too narrow
+        // for the straight thumbs to pass (under 2 x k_ThumbReach), 2 x k_ThumbStagger over it - and always all on the face, BeltClearance
+        // over the box bottom and under its top; checked within PlanReach (a grip near the body's centre line only warns); then it glides
+        // there from the fold and PreGrasp slides it in.
         private void EnterGrasp()
         {
             Arm h = Stopper,
@@ -1582,13 +1584,18 @@ namespace G1Pipe
             r.Gap = ApproachGap + k_PreWiden;
             m_Slide = -k_PreFront;
             float bottom = m_Center.Y - m_HalfH,
-                palm = h.Cmd.Y - PalmBelow(h) + k_PalmHalf + 2f * k_ThumbStagger - bottom, // reaching palm's centre over the box bottom
+                lowest = BeltClearance + k_PalmHalf, // palm centre range over the box bottom that keeps the palm all on the face
+                palm = Mathf.Clamp(
+                    h.Cmd.Y
+                        - PalmBelow(h)
+                        + k_PalmHalf
+                        - bottom
+                        + (m_HalfW < k_ThumbReach ? 2f * k_ThumbStagger : 0f),
+                    lowest,
+                    Math.Max(lowest, 2f * m_HalfH - k_PalmHalf)
+                ), // reaching palm's centre over the box bottom
                 low = BeltClearance + PalmBelow(r) + (1f + r.Side) * k_ThumbStagger; // its grip height with no raise
-            m_GripLift = Mathf.Clamp(
-                palm + PalmBelow(r) - k_PalmHalf - low,
-                0f,
-                Math.Max(0f, 2f * m_HalfH - TopMargin - low)
-            );
+            m_GripLift = Math.Max(0f, palm + PalmBelow(r) - k_PalmHalf - low);
             HoldHere();
             Vector3 sh = BodyPos(r.Shoulder);
             float reach =
@@ -1824,7 +1831,7 @@ namespace G1Pipe
                     if (a.Touch[i])
                         touching.Add(a.GeomName[i]);
                 Log.Info(
-                    $"[G1] GR   {a.Name}: palm {a.PalmForce:F1} N{(a.PalmOn ? "" : " (not on its face yet)")}, fingers {a.Force - a.PalmForce:F1} N, thumb {a.ThumbForce:F1} N"
+                    $"[G1] GR   {a.Name}: palm {a.PalmForce:F1} N{(a.PalmOn ? "" : " (off its face)")}, fingers {a.Force - a.PalmForce:F1} N, thumb {a.ThumbForce:F1} N"
                         + $" | gap target {a.Gap:F3} m, palm measured {face:F3} m off its face, palm height on the face {on * 100f:F0}% (lower edge {lo - (c.Y - m_HalfH):F3} m over the box bottom)"
                         + $" | curl {a.Curl:F2} rad, thumb {a.Thumb:F2} rad, palm {a.PalmErr:F0} deg off | err {HandError(a):F3} m | touching [{string.Join(", ", touching)}]"
                 );
@@ -1846,7 +1853,7 @@ namespace G1Pipe
             bool stuck = false;
             foreach (Arm a in m_Arms)
             {
-                bool held = a.PalmOn && a.Force >= need; // palm has reached its face; palm + fingers hold GripForceLimit of the required force
+                bool held = a.PalmOn && a.Force >= need; // palm on its face; palm + fingers hold GripForceLimit of the required force
                 if (!held)
                     m_StepTime = 0f;
                 stuck |= !held && a.Gap <= 0.001f - MaxSqueezeDepth;
@@ -2397,7 +2404,8 @@ namespace G1Pipe
         }
 
         // Squeeze per hand, on the palm's own force only (fingertips can't hold the palm off the face): the gap closes at full rate until the
-        // palm touches, then presses toward k_SqueezeMargin x target (admittance). Index + middle curl in only once the palm is on its face.
+        // palm touches, then presses toward k_SqueezeMargin x target (admittance). Index + middle curl in only while the palm is on its face
+        // (on at TouchForce, off under half of it) and ease back as soon as it leaves, so curled fingertips never hold the palm off the face.
         private void Squeeze(float ts, float target)
         {
             ReadForces();
@@ -2413,15 +2421,15 @@ namespace G1Pipe
                     -MaxSqueezeDepth,
                     ApproachGap + k_Widen
                 );
-                if (!a.PalmOn && a.PalmForce >= TouchForce)
-                {
-                    a.PalmOn = true;
+                bool on = a.PalmForce >= (a.PalmOn ? 0.5f * TouchForce : TouchForce);
+                if (on != a.PalmOn)
                     Log.Info(
-                        $"[G1] GR {a.Name} palm on its face in {m_Phase} ({a.PalmForce:F1} N, gap {a.Gap:F3} m, fingers {a.Force - a.PalmForce:F1} N) -> fingers curl in"
+                        $"[G1] GR {a.Name} palm {(on ? "on" : "off")} its face in {m_Phase} ({a.PalmForce:F1} N, gap {a.Gap:F3} m, fingers {a.Force - a.PalmForce:F1} N, curl {a.Curl:F2} rad) -> fingers {(on ? "curl in" : "ease back")}"
                     );
-                }
-                if (a.PalmOn)
-                    a.Curl = Math.Min(a.Curl + k_CurlRate * ts, k_MaxCurl);
+                a.PalmOn = on;
+                a.Curl = on
+                    ? Math.Min(a.Curl + k_CurlRate * ts, k_MaxCurl)
+                    : Math.Max(0f, a.Curl - 2f * k_CurlRate * ts);
             }
         }
 

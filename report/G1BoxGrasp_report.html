@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G1 Box Grasp Report</title>
+<style>
+  :root {
+    --ink: #1a1a1a; --muted: #555; --rule: #c9c9c9; --soft: #f3f3f1; --accent: #1f4e79; --warn: #8a3b12;
+  }
+  @page { size: A4; margin: 18mm 17mm 18mm 17mm;
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8.5pt "DejaVu Sans", sans-serif; color: #777; }
+    @bottom-left { content: "G1BoxGrasp: conveyor catch and two-hand grasp"; font: 8.5pt "DejaVu Sans", sans-serif; color: #777; }
+  }
+  @page :first { @bottom-left { content: none; } @bottom-right { content: none; } }
+  html, body { background: #fff; color: var(--ink); }
+  body { font: 10pt/1.45 "DejaVu Serif", "Liberation Serif", Georgia, serif; margin: 0; }
+  h1, h2, h3, h4, .sans, table, figcaption, .box, code, .k { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; }
+  h1 { font-size: 22pt; margin: 0 0 4pt; color: var(--accent); letter-spacing: -0.3pt; }
+  h2 { font-size: 14pt; color: var(--accent); margin: 18pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.2pt solid var(--accent); break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 12pt 0 4pt; break-after: avoid; }
+  h4 { font-size: 10pt; margin: 9pt 0 3pt; break-after: avoid; }
+  p { margin: 0 0 6pt; text-align: justify; hyphens: auto; }
+  ul, ol { margin: 0 0 6pt 16pt; padding: 0; } li { margin: 0 0 2pt; }
+  code { font-size: 8.6pt; background: var(--soft); padding: 0 2pt; border-radius: 2pt; }
+  pre { font: 8.3pt/1.35 "DejaVu Sans Mono", monospace; background: var(--soft); border-left: 2pt solid var(--rule); padding: 5pt 7pt; margin: 4pt 0 8pt; white-space: pre-wrap; break-inside: avoid; }
+  table { border-collapse: collapse; width: 100%; font-size: 8.4pt; line-height: 1.32; margin: 4pt 0 9pt; break-inside: auto; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  th, td { border: 0.6pt solid var(--rule); padding: 2.5pt 4pt; vertical-align: top; text-align: left; }
+  th { background: #e9edf2; font-weight: 700; }
+  td.n, th.n { text-align: right; white-space: nowrap; }
+  figure { margin: 8pt 0 10pt; break-inside: avoid; text-align: center; }
+  figure img, figure svg { max-width: 100%; height: auto; }
+  figcaption { font-size: 8.6pt; color: var(--muted); margin-top: 4pt; text-align: left; }
+  .box { border: 0.8pt solid var(--rule); background: #fafaf8; padding: 6pt 8pt; margin: 6pt 0 9pt; font-size: 9pt; break-inside: avoid; }
+  .box.warn { border-color: #d9b49c; background: #fdf6f1; }
+  .box b.t { display: block; margin-bottom: 2pt; color: var(--accent); }
+  .box.warn b.t { color: var(--warn); }
+  .meta { font: 9pt "DejaVu Sans", sans-serif; color: var(--muted); margin-bottom: 12pt; }
+  .toc { font: 9pt/1.5 "DejaVu Sans", sans-serif; columns: 2; column-gap: 18pt; margin: 6pt 0 10pt; }
+  .toc div { break-inside: avoid; }
+  .pb { break-before: page; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; }
+  .k { font-size: 8.6pt; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>G1 Box Grasp: conveyor catch and two-hand grasp</h1>
+<div class="meta">Work report for the LuckyEngine G1 controller <code>g1_grasp.cs</code> (namespace <code>G1Pipe</code>, class <code>G1BoxGrasp</code>) &middot; covers 16&ndash;19 October 2026 &middot; repo <code>~/projects/robot_code/G1BoxGrasp</code>, engine project <code>~/Documents/LuckyEngine/Projects/g1_sort</code></div>
+
+<div class="box">
+<b class="t">Summary</b>
+The controller started this period as a working pick-and-place pipeline for a box <em>resting</em> on the conveyor: walk, line up, two-hand grasp, lift, turn, walk, place. Most of its constants were moved into the inspector, and a long series of logged runs explained its failure modes: a far IK target causes a singularity, and a box narrower than about 0.15 m puts the hands near the body's centre line. The conveyor was then turned into a gravity slide (tilted belt, low friction), and a <strong>catch</strong> phase was built. The left (downhill) hand predicts where the sliding box will be, waits in front of its path, slides its palm in, and gives with the box so it stops instead of bouncing. The catch now works reliably (commits <code>81c4fea</code>, <code>8863226</code>). It hands straight over to the existing grasp: the left hand stays pinned on the box and only the right hand comes in (commit <code>9a291ce</code>). The right hand now arrives and both palms squeeze. The box still escapes, because the effective friction between the hands and the box is about the box's own 0.01, not the hand's. A high-priority friction class has just been added to the robot model's hand geoms to fix that. It is not yet tested.
+</div>
+
+<div class="toc">
+<div>1. Project, tools and workflow</div>
+<div>2. The pipeline and its phase loop</div>
+<div>3. Inspector exposure and tuning (resting-box pipeline)</div>
+<div>4. Log analyses of the resting-box pipeline</div>
+<div>5. Turning the conveyor into a slide</div>
+<div>6. The catch: design iterations</div>
+<div>7. The catch as it works now</div>
+<div>8. Catch &rarr; grasp handoff</div>
+<div>9. Friction and the slipping box</div>
+<div>10. Engine facts and gotchas learned</div>
+<div>11. Scene layout rules</div>
+<div>12. Commits, current state and next steps</div>
+<div>Appendix A. Inspector fields added</div>
+<div>Appendix B. Key formulas</div>
+</div>
+
+<h2>1. Project, tools and workflow</h2>
+<p><strong>Robot and engine.</strong> Unitree G1 with three-finger hands (<code>ContentVault/Robots/UnitreeG1ThreeFingers/g1_three_fingers.xml</code>) in LuckyEngine (Hazel editor with MuJoCo physics). The legs and waist are run by learned policies in slots: walker&nbsp;=&nbsp;1, rotator&nbsp;=&nbsp;2. The arms use a motion-graph LimbIK whose end effectors are <code>left_grasp_site</code> and <code>right_grasp_site</code>. The IK owns the shoulders and the elbow. The script owns the wrists (a closed-loop wrist servo) and the thumb and finger bases.</p>
+<p><strong>Files.</strong> The controller is a single file, <code>g1_grasp.cs</code> (about 3,260 lines, 83 inspector fields). It's developed in the repo and copied into the engine project's <code>Assets/Scripts/Client/Source/</code>. The only difference between the two copies is <code>ArmReach</code> (0.50 in the repo, 0.65 in the engine). The phase diagram is <code>g1_grasp_flow.svg</code>. Logs are in <code>/tmp/LuckyEngine/Logs/APP.log</code>, and every controller line starts with <code>[G1]</code>.</p>
+<p><strong>Workflow used throughout.</strong> Each change was edited in the repo, formatted with <code>csharpier</code>, compile-checked with <code>dotnet build G1BoxGrasp.csproj</code> against the engine's <code>Hazel-ScriptCore.dll</code> (every build ended with 0 errors), and synced to the engine copy. The user then ran the scene, and the next step was decided from the log. Analysis-only requests were answered without code changes. Commits were made only when asked.</p>
+
+<h2>2. The pipeline and its phase loop</h2>
+<p>A phase machine drives everything: <code>Advance()</code> is the only place the phase changes, every phase has a progress watchdog, and <code>Fail(why)</code> leads to <code>Recover</code>. Figure&nbsp;1 is the black-and-white loop diagram made in this period, from the generator script <code>flow.py</code>, checked by rendering with headless Chrome. It shows the resting-box pipeline. The catch path added later enters it at <code>PreGrasp</code> (section&nbsp;8, Figure&nbsp;3).</p>
+<figure>
+  <img src="../g1_grasp_flow.svg" alt="G1BoxGrasp phase loop" style="width:74%">
+  <figcaption><b>Figure 1.</b> Phase loop of the resting-box pipeline (<code>g1_grasp_flow.svg</code>). Main chain: Start &rarr; FindBox &rarr; Approach &rarr; Ready &rarr; PreGrasp &rarr; Squeeze &rarr; Lift &rarr; PullIn &rarr; TurnToTable &rarr; WalkToTable &rarr; FaceTable &rarr; Place &rarr; Release &rarr; Retract. Optional walk to the box, DragIn and Reposition on the left. The dashed Fail(why) bus leads to Recover, then a retry from FindBox or Failed. A failed squeeze retries through PreGrasp. The footer lists the phase switches and test modes.</figcaption>
+</figure>
+<p>The grasp itself works like this. <code>Reachable()</code> plans the grip and checks reach: every hand target within <em>HandLimit</em>% of the arm, measured from the standing pose, and each grip point at least <em>MinSide</em> off the body's centre line. Both hands glide to <strong>pre-grip</strong> points 10&nbsp;cm in front of the box, 3&nbsp;cm wider than the grip. After a tare they <strong>slide in</strong> along the side faces, with <em>ApproachGap</em> of air between each palm and its face. <strong>Squeeze</strong> is admittance control on palm force: the gap target goes negative down to −<em>MaxSqueezeDepth</em> until the palm-only force reaches the required squeeze, factor&nbsp;&times;&nbsp;m&middot;g&nbsp;/&nbsp;(2&mu;). The index and middle fingers curl while the palm is on its face. A grip that stalls at full depth is reopened and retried (<em>MaxSqueezeTries</em>).</p>
+
+<h2>3. Inspector exposure and tuning (resting-box pipeline)</h2>
+<p>Most of the requests in the first part asked for a constant to be put in the inspector so it could be tuned without code. Everything added is listed in Appendix&nbsp;A. The decisions that mattered:</p>
+<ul>
+<li><b>HandLimit vs IKTargetLimit.</b> One limit was split into two. <em>HandLimit</em> (93) is the planning limit, measured from the standing pose. <em>IKTargetLimit</em> (95) is the per-frame cap, measured from the live shoulder: any IK target beyond it is pulled in toward the shoulder. For a short time the cap was tied to HandLimit. At HandLimit&nbsp;110 that let targets reach 110% of the arm, and the result was the singularity described in section&nbsp;4. The user's point that "&gt;100% is sometimes not unreachable" was handled by keeping the plan limit tunable while the cap stays under 100.</li>
+<li><b>GripForceLimit</b> (100%). The fraction of the required squeeze each hand must hold before the grip counts, so a squeeze that falls slightly short no longer stalls.</li>
+<li><b>GripComfort</b> (85%) replaced <code>k_Comfort</code>. The grip is raised up the box until each grasp site is within this share of the arm.</li>
+<li><b>Thumb angles</b>, all clamped to the joint limits from the MJCF:
+  <ul>
+  <li><em>ThumbOpenDeg</em> (41.25, thumb_1 out);</li>
+  <li><em>ThumbGripDeg</em> (0, thumb_1 in);</li>
+  <li><em>ThumbTipDeg</em> (0, thumb_2).</li>
+  </ul>
+  The thumb-related ranges are thumb_1 −0.724…1.047&nbsp;rad and thumb_2 0…1.745&nbsp;rad. Thumb_0 (±1.047) isn't driven by the script.</li>
+<li><b>Tolerances group.</b> Fourteen hidden constants became fields (ReachProgress, the four Placed* checks, TopMargin, the three Align* values, MinSide, MaxGripUp, StillSpeed/StillTime, TouchForce, Slip/Drop tolerance and LostDistance), plus ReachTolerance moved here.</li>
+<li><b>MaxSqueezeDepth</b> (0.03 by default; the scene used 0.05). How far past its face a palm target may go, and so how much arm tracking error a squeeze can make up.</li>
+<li><b>Palm height.</b> The answer to "which variable decides how far down the box sides the palm goes": <em>BeltClearance</em> (Box group). The grip height is <code>BeltClearance + PalmBelow + (1+Side)&middot;k_ThumbStagger + GripLift</code>, so the left hand sits 3.6&nbsp;cm higher than the right so the straight thumbs pass each other.</li>
+</ul>
+<p>That stage was committed as <code>a571ea4</code> "good enough pipeline". The commit also includes the redrawn phase diagram.</p>
+
+<h2>4. Log analyses of the resting-box pipeline</h2>
+<table>
+<thead><tr><th style="width:17%">Run / question</th><th style="width:43%">What the log showed</th><th>Explanation / outcome</th></tr></thead>
+<tbody>
+<tr><td>Six runs on 16&nbsp;Oct</td><td>2 successes. Short side-step bursts stalled for a box far off-centre. The rotator's carry turn made the box slip. A narrow box was blocked by MinSide and looped. One run was a stale build.</td><td>Several fixes proposed but not done: escalate stalled bursts, gentler carry turns, stop chasing a pushed box during PreGrasp, wrap the thumbs after the palms are on.</td></tr>
+<tr><td>HandLimit &gt; 100 (110)</td><td>The slowdown and twisting started on the frame the per-frame IK target crossed 100% (right hand 1.04&nbsp;m/s, sim 0.13&times; real time). Then the hands pushed the box, which moved the goals, which pushed the box again.</td><td>A target beyond full stretch is an IK singularity. Fixed by the separate <em>IKTargetLimit</em> cap at 95%.</td></tr>
+<tr><td>17:42, cap at 95%</td><td>No slowdown. Failed "right hand short": the hand was 0.6&nbsp;cm over the box top against PlacedTop 0.01, with ReachTolerance 0.05 borderline.</td><td>The tolerances were too strict, which led to exposing all of them (section&nbsp;3).</td></tr>
+<tr><td>15:54, box halved (0.152 wide)</td><td>Rejected by MinSide 0.11: a grip point sat 0.10&nbsp;m from the centre line. After MaxBoxAttempts&nbsp;=&nbsp;5 the box was skipped and FindBox stalled.</td><td>The arm sweeps showed IK accuracy falls off within about 0.12&nbsp;m of the centre line, so narrow boxes were blocked by design.</td></tr>
+<tr><td>16:00, squeeze not working</td><td>ThumbGripDeg&nbsp;15 drove the thumb tips into the front face. They pinned the hands with friction, pushed the box 3.3&nbsp;cm away and tipped it. The palms stayed 2.5–3&nbsp;cm off. The right arm's IK landed 1.9&nbsp;cm outward on the narrow box, against 0.5&nbsp;cm inward on the wide one.</td><td>Keep the thumbs straight (0) for the squeeze.</td></tr>
+<tr><td>Narrow box always leaves a gap</td><td>The same gap is commanded for both widths, but the arm's tracking error near the centre line uses up the squeeze depth.</td><td><em>MaxSqueezeDepth</em> exposed.</td></tr>
+<tr><td>16:41, 0.15 box, depth 0.05</td><td>Approach left the box 4.4&nbsp;cm off-centre, inside AlignSide 0.06. The left grip point was 0.07&nbsp;m from the centre line. During the slide-in the left target moved 3&nbsp;cm inward but the hand didn't move: lag 0.9 &rarr; 4.6&nbsp;cm, then 7&nbsp;cm in the squeeze. The left palm stayed 6.6 &rarr; 4.2&nbsp;cm off its face. The right hand gripped (fingers 34&nbsp;N) and pushed the box, which tipped on the retry.</td><td>More depth only moves the target; the arm doesn't follow that close to the centre line. Suggested: AlignSide about 0.015 and MinSide back to 0.11. The real fix would be finer centring steps and checking MinSide at the final grip points instead of the pre-grip ones.</td></tr>
+</tbody>
+</table>
+
+<h2>5. Turning the conveyor into a slide</h2>
+<h3>5.1 What the scene had</h3>
+<table>
+<thead><tr><th style="width:20%">Entity</th><th style="width:37%">Contents</th><th>State</th></tr></thead>
+<tbody>
+<tr><td>ConveyorBelt</td><td><code>G1Sort.BeltForce</code>: speed 0.3, direction +Z, for PoolBox_01..10. Writes box qpos each step.</td><td>Did nothing: it looks bodies up by tag, but scene bodies are named <code>lucky_body_&lt;entityID&gt;</code>. Even working, a qpos-driven box would pass through a hand.</td></tr>
+<tr><td>ConveyorGateController</td><td><code>G1Sort.ConveyorGate</code>: weld/unweld a <code>Trapdoor</code> body every 1&nbsp;s.</td><td>Did nothing: no Trapdoor entity, and the same tag lookup.</td></tr>
+<tr><td>FunnelWall_01/02/03/East</td><td>A vertical funnel at x 0.80–0.95, z 0.575–0.725, height 0.88–2.58.</td><td>Inside width exactly 0.15&nbsp;m, the box width, so a box would jam. It sits over the far side of the belt.</td></tr>
+<tr><td>SpawnMarker</td><td>5&nbsp;cm cube <em>with a collider</em> inside the funnel.</td><td>Would catch a falling box.</td></tr>
+<tr><td>Belt geometry</td><td>x 0.44–1.02 (0.58 wide), z −0.735…1.011, top at about 0.49, friction 1.7, tilted 1&deg; with the low end at −Z.</td><td>The robot faces +X, so its left is −Z. A box sliding −Z travels toward the robot's left, which is also the table side.</td></tr>
+</tbody>
+</table>
+<h3>5.2 Script belt vs. gravity slide</h3>
+<p>Two options were compared:</p>
+<ul>
+<li><b>Scripted belt:</b> a speed controller with a force limit, applied through <code>SetQfrcAppliedByDof</code>. The force has to be zeroed when the box is lifted, because MuJoCo keeps applied forces until they're overwritten.</li>
+<li><b>Gravity slide:</b> a tilted belt with low friction, and no script at all.</li>
+</ul>
+<p>The user chose the slide, and it's the better fit for the catch:</p>
+<ul>
+<li>the box arrives with real momentum;</li>
+<li>a stopped box only leans on the palm with m&middot;g&middot;(sin&theta; − &mu;cos&theta;), about 0.1–0.25&nbsp;N.</li>
+</ul>
+<p>Two requirements came out of the comparison:</p>
+<ol>
+<li><b>Lower the friction on both the box and the belt.</b> MuJoCo uses the larger of the two frictions, so lowering only the belt does nothing.</li>
+<li><b>Add an end stop</b> at the low end, so a missed box doesn't fall off.</li>
+</ol>
+<table>
+<thead><tr><th>Tilt</th><th>&mu; (box)</th><th class="n">downhill accel</th><th class="n">0.4&nbsp;m/s knock slides</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td>1.9&deg;</td><td>0.01</td><td class="n">0.23 m/s&sup2;</td><td class="n">0.82 m</td><td>First scene. A light touch sends the box off the belt.</td></tr>
+<tr><td>5&deg;</td><td>0.06</td><td class="n">0.27 m/s&sup2;</td><td class="n">0.14 m</td><td>Same speed, much more damping.</td></tr>
+<tr><td>8&deg;</td><td>0.11</td><td class="n">0.30 m/s&sup2;</td><td class="n">0.07 m</td><td>Keep &mu; at about 70–80% of tan&theta;; the pyramidal friction cone tends to stick near the limit.</td></tr>
+</tbody>
+</table>
+<p>The belt was later run at 2.7–3.1&deg;. The measured accelerations, 0.14&nbsp;m/s² at 3.1&deg; and 0.07&nbsp;m/s² at 2.7&deg;, match g(sin&theta; − &mu;cos&theta;) with &mu; ≈ 0.04 (the belt's value). The belt also has a slight twist (Rotation Y 0.0099, Z −0.0016), which makes the box drift about 2&nbsp;cm outward per metre.</p>
+
+<figure>
+<svg viewBox="0 0 620 640" width="560" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1a1a1a"/></marker>
+  <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1f4e79"/></marker></defs>
+  <!-- scale: x_s = 40 + (x+0.8)*280 ; y_s = 30 + (z+0.95)*280 -->
+  <rect x="49.7" y="51.3" width="363.5" height="112" fill="#f1ede4" stroke="#8c7b5e" stroke-width="1.2"/>
+  <text x="140" y="112" font-size="12" fill="#5f513a">packing table (top 0.47–0.49 m)</text>
+  <rect x="387.2" y="90.2" width="162.4" height="488.9" fill="#e8eef4" stroke="#1f4e79" stroke-width="1.4"/>
+  <text x="468" y="83" font-size="12" text-anchor="middle" fill="#1f4e79" font-weight="700">conveyor (tilted)</text>
+  <line x1="387.2" y1="590" x2="387.2" y2="612" stroke="#1f4e79" stroke-width="1"/>
+  <text x="387" y="625" font-size="10.5" text-anchor="middle" fill="#1f4e79">near edge x 0.44</text>
+  <text x="549" y="625" font-size="10.5" text-anchor="middle" fill="#1f4e79">x 1.02</text>
+  <!-- box start -->
+  <rect x="416.4" y="532.9" width="42" height="84" fill="#fff" stroke="#1a1a1a" stroke-width="1.4"/>
+  <text x="470" y="560" font-size="10.5">box start</text>
+  <text x="470" y="573" font-size="10.5">(0.63, z 0.99)</text>
+  <!-- path -->
+  <line x1="437.4" y1="525" x2="437.4" y2="360" stroke="#1a1a1a" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+  <text x="446" y="452" font-size="10.5">slides downhill (−Z)</text>
+  <!-- stopped box -->
+  <rect x="421.6" y="287.8" width="42" height="84" fill="none" stroke="#1a1a1a" stroke-width="1.4" stroke-dasharray="3 3"/>
+  <text x="472" y="318" font-size="10.5">stop spot,</text>
+  <text x="472" y="331" font-size="10.5">straight ahead</text>
+  <text x="472" y="344" font-size="10.5">of the pelvis</text>
+  <!-- left palm (downhill face) -->
+  <rect x="429" y="278" width="26" height="6" fill="#b5462a"/>
+  <text x="380" y="262" font-size="10.5" fill="#b5462a" text-anchor="end">left palm stops the box</text>
+  <line x1="383" y1="264" x2="427" y2="279" stroke="#b5462a" stroke-width="0.9"/>
+  <!-- waiting point -->
+  <rect x="380" y="276" width="20" height="6" fill="none" stroke="#b5462a" stroke-width="1.2" stroke-dasharray="2 2"/>
+  <text x="300" y="296" font-size="10.5" fill="#b5462a" text-anchor="end">waiting point (in front</text>
+  <text x="300" y="309" font-size="10.5" fill="#b5462a" text-anchor="end">of the path), slide in &rarr;</text>
+  <!-- right palm -->
+  <rect x="429" y="375" width="26" height="6" fill="#2a6e3f"/>
+  <text x="380" y="398" font-size="10.5" fill="#2a6e3f" text-anchor="end">right palm comes in after the catch</text>
+  <!-- robot -->
+  <circle cx="333.2" cy="329.6" r="15" fill="#fff" stroke="#1a1a1a" stroke-width="1.5"/>
+  <line x1="333.2" y1="329.6" x2="370" y2="329.6" stroke="#1a1a1a" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="333" y="362" font-size="10.5" text-anchor="middle">G1 pelvis</text>
+  <text x="333" y="375" font-size="10.5" text-anchor="middle">x ≈ 0.29, facing +X</text>
+  <!-- axes -->
+  <line x1="60" y1="590" x2="120" y2="590" stroke="#1f4e79" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="126" y="594" font-size="11" fill="#1f4e79">+X (forward)</text>
+  <line x1="60" y1="590" x2="60" y2="535" stroke="#1f4e79" stroke-width="1.4" marker-end="url(#arb)"/>
+  <text x="66" y="540" font-size="11" fill="#1f4e79">−Z = robot's left</text>
+  <text x="66" y="612" font-size="10" fill="#555">top view, 1 m ≈ 280 px</text>
+</svg>
+<figcaption><b>Figure 2.</b> Top view of the working layout (Hazel coordinates, Y up). The box slides along x ≈ 0.63 toward −Z, the robot's left. The left palm closes the path at the box's downhill face. It first waits in front of the path (toward the robot) and then slides forward into it. After the catch, the right hand comes down on the uphill face. The waiting point must stay in front of the belt's near edge (x 0.44).</figcaption>
+</figure>
+
+<h2 class="pb">6. The catch: design iterations</h2>
+<p>The catch took about a dozen log-driven iterations. Each row below is one change and the run that motivated it.</p>
+<table>
+<thead><tr><th style="width:4%">#</th><th style="width:25%">Version</th><th style="width:37%">What the run showed</th><th>Change made</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Hold the box with <code>WeldBody</code> until the hand is ready, then release</td><td>The box started sliding at t=0, ran the whole belt and fell off the end after about 4.3&nbsp;s. One persistent <code>WeldBody</code> call made in <code>Begin</code> didn't hold the box. The robot then side-stepped toward a box on the floor.</td><td>The user dropped the weld: "assume the box starts at the top and accelerates, track it from the start, predict, put the left hand in between".</td></tr>
+<tr><td>2</td><td>Track from the first frame and predict; stop spot straight ahead; shift it down the belt if the box would beat the hand</td><td>The robot spawned out of reach (pelvis x 0.02, target 151–193% of the arm). The spawn lurch moved the pelvis 0.26&nbsp;m forward and back and turned it to −34&deg;. The palm came down from above onto the box edge. The box bounced off the stiff palm (0.24 in, −0.50&nbsp;m/s out) and was pushed outward, x 0.63 &rarr; 0.80.</td><td>Diagnosis: a stiff arm plus a frictionless belt makes an elastic bounce; the hand came in from above; the robot was too far away.</td></tr>
+<tr><td>3</td><td>Side approach, give, measured acceleration</td><td>&mdash;</td><td>Waiting point in front of the path, fingertips clear (site k_CatchFront 0.10 + FrontInset in front of the front face; fingertips reach about 8.5&nbsp;cm past the site), then a slide straight in. A give that runs with the box and brakes over <em>CatchGive</em>. Acceleration learned from the box's speed changes.</td></tr>
+<tr><td>4</td><td>Same</td><td>The <b>right hand flailed</b>. CatchPose bypassed the fold smoothing, so its IK target was glued to the lurching pelvis, and its wrist servoed to the box frame. The left hand's slide waited on the right hand's moves (the moving-check looked at both arms). It slid in too late, at 103–110% reach, and the fingers flung the box 0.5&nbsp;m sideways.</td><td>The free hand is <em>parked</em> (smoothed fold, wrist on the heading). The moving-check looks at the stopper only. The slide starts only if the box is ≥ 0.8&nbsp;s away.</td></tr>
+<tr><td>5</td><td>Same</td><td>The lurch comes from the spawn: the pelvis starts at 0.79&nbsp;m and drops to 0.47, then staggers for about 3&nbsp;s, the same with no catching. The box arrives at 2.7&nbsp;s. The first-frame shift came from the spawn pose (182%) and could never come back down.</td><td>Step 0: wait folded until the body is still, or until the box is so close the hand must go. The spot is fixed in the world once the hand goes. The shift is predicted only once the hand is at its waiting point.</td></tr>
+<tr><td>6</td><td>Same</td><td>"The catching works, but low friction knocks the box away." The shift jumped 15&nbsp;cm during the slide, turning it into a 25&nbsp;cm diagonal sweep through the box's lane.</td><td>Shift frozen once the slide starts. Slide needs +0.2&nbsp;s spare (1.0&nbsp;s in total).</td></tr>
+<tr><td>7</td><td>5&deg; tilt, &mu; 0.06</td><td>The hand never got settled in time: the first move was planned from the spawn pose as one fixed 2&nbsp;s move, and every target change restarted a move of at least 0.5&nbsp;s.</td><td><b>Continuous tracking</b>: the stopper's IK command eases toward its target at up to <em>CatchHandSpeed</em>, with no restarts.</td></tr>
+<tr><td>8</td><td>3.1&deg; tilt</td><td>"Sudden jerks bounce the box." The give started 0.29&nbsp;s early, jumped from 0 to 0.45&nbsp;m/s, and finished before the box arrived, so the box hit a <em>stopped</em> palm and bounced (0.49 &rarr; −0.35&nbsp;m/s). The arm was at 87–95% reach. The palm hit above the centre of mass, twisting the box outward.</td><td><b>Speed-matched give</b>: palm speed = v<sub>box</sub>(1 − √(gap/0.05&nbsp;m)), then braking once the box is on the palm. Stopper palm centred on the box's mid-height. Committed: <code>81c4fea</code> "catch works".</td></tr>
+</tbody>
+</table>
+
+<h2>7. The catch as it works now</h2>
+<figure>
+<svg viewBox="0 0 660 600" width="540" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif">
+  <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1a1a1a"/></marker></defs>
+  <style>.b{fill:#fff;stroke:#1a1a1a;stroke-width:1.3}.g{fill:#eef3ea;stroke:#2a6e3f;stroke-width:1.3}.t{font-size:12.5px;font-weight:700;text-anchor:middle}.s{font-size:10px;text-anchor:middle;fill:#333}.e{stroke:#1a1a1a;stroke-width:1.3;fill:none}.f{stroke:#8a3b12;stroke-width:1.2;fill:none;stroke-dasharray:5 3}</style>
+  <rect class="b" x="40" y="10" width="300" height="40" rx="4"/><text class="t" x="190" y="28">FindBox</text><text class="s" x="190" y="42">box over the belt, uphill of the pelvis</text>
+  <path class="e" d="M190 50 V62" marker-end="url(#a3)"/>
+  <rect class="b" x="40" y="64" width="300" height="44" rx="4"/><text class="t" x="190" y="82">0 &middot; wait, both hands folded</text><text class="s" x="190" y="97">until still, or the box is so close the hand must go</text>
+  <path class="e" d="M190 108 V120" marker-end="url(#a3)"/>
+  <rect class="b" x="40" y="122" width="300" height="44" rx="4"/><text class="t" x="190" y="140">1 &middot; to the waiting point</text><text class="s" x="190" y="155">in front of the path; spot fixed; shift predicted there</text>
+  <path class="e" d="M190 166 V178" marker-end="url(#a3)"/>
+  <rect class="b" x="40" y="180" width="300" height="44" rx="4"/><text class="t" x="190" y="198">2 &middot; slide in</text><text class="s" x="190" y="213">only with ≥ 1.0 s before the box arrives</text>
+  <path class="e" d="M190 224 V236" marker-end="url(#a3)"/>
+  <rect class="b" x="40" y="238" width="300" height="44" rx="4"/><text class="t" x="190" y="256">3 &middot; in place</text><text class="s" x="190" y="271">tare; palm matches the box speed over the last 5 cm</text>
+  <path class="e" d="M190 282 V294" marker-end="url(#a3)"/>
+  <rect class="b" x="40" y="296" width="300" height="44" rx="4"/><text class="t" x="190" y="314">4 &middot; give</text><text class="s" x="190" y="329">box on the palm: brake over CatchGive</text>
+  <path class="e" d="M190 340 V352" marker-end="url(#a3)"/>
+  <rect class="b" x="40" y="354" width="300" height="44" rx="4"/><text class="t" x="190" y="372">5 &middot; caught</text><text class="s" x="190" y="387">&lt; CatchSpeed for CatchTime; wait still</text>
+  <path class="e" d="M190 398 V410" marker-end="url(#a3)"/>
+  <rect class="g" x="40" y="412" width="300" height="44" rx="4"/><text class="t" x="190" y="430">EnterGrasp &rarr; PreGrasp</text><text class="s" x="190" y="445">left pinned (HoldHere); right to its pre-grip, slides in</text>
+  <path class="e" d="M190 456 V468" marker-end="url(#a3)"/>
+  <rect class="g" x="40" y="470" width="300" height="44" rx="4"/><text class="t" x="190" y="488">Squeeze</text><text class="s" x="190" y="503">both palms on their faces, fingers curl only then</text>
+  <path class="e" d="M190 514 V526" marker-end="url(#a3)"/>
+  <rect class="g" x="40" y="528" width="300" height="44" rx="4"/><text class="t" x="190" y="546">(DragIn) &rarr; Lift &rarr; carry &rarr; place</text><text class="s" x="190" y="561">the existing pipeline; left stays pinned</text>
+  <path class="f" d="M340 200 H430 V300"/><path class="f" d="M340 318 H430"/><path class="f" d="M340 432 H430 V300" />
+  <rect x="430" y="270" width="200" height="66" rx="4" fill="#fdf6f1" stroke="#8a3b12" stroke-width="1.2"/>
+  <text x="530" y="290" font-size="12.5" font-weight="700" text-anchor="middle" fill="#8a3b12">Fail &rarr; Recover</text>
+  <text x="530" y="305" font-size="10" text-anchor="middle" fill="#8a3b12">box past the hand, off the belt,</text>
+  <text x="530" y="318" font-size="10" text-anchor="middle" fill="#8a3b12">never stops, or the right hand</text>
+  <text x="530" y="331" font-size="10" text-anchor="middle" fill="#8a3b12">is out of reach</text>
+</svg>
+<figcaption><b>Figure 3.</b> Catch steps (white) and the handoff into the grasp (green). Any step can fail into Recover (dashed).</figcaption>
+</figure>
+<h3>7.1 How each part works</h3>
+<ul>
+<li><b>Prediction.</b>
+  <ul>
+  <li><b>Path:</b> the box's path is a line through where it rests on the belt, along the in-plane downhill direction d&nbsp;=&nbsp;normalize(n&middot;n<sub>y</sub> − up).</li>
+  <li><b>Stop spot:</b> the path point straight ahead of the pelvis.</li>
+  <li><b>Hand time:</b> distance ÷ CatchHandSpeed + about 0.2&nbsp;s of easing + 0.3&nbsp;s of arm lag.</li>
+  <li><b>Box position at that time:</b> u + v&middot;t + ½a&middot;t², where <i>a</i> starts at the frictionless value g&middot;sin&theta; (the earliest the box can arrive) and is then learned from the box's speed changes. It came out at 0.233&nbsp;m/s² at 1.9&deg;, exactly √(0.33 − 0.01&middot;g).</li>
+  </ul></li>
+<li><b>Stopper motion.</b> The left hand's IK command tracks its target continuously: it moves at up to <em>CatchHandSpeed</em>, eases in near the target, and never restarts a fixed-length move. During the give it follows the moving spot directly.</li>
+<li><b>Give.</b> Over the box's last 5&nbsp;cm the spot speeds up, so the gap closes at a steadily falling rate and the palm meets the box at about its speed. Once the box is on the palm (force over TouchForce, or within 5&nbsp;mm) the spot brakes at v²/(2&middot;<em>CatchGive</em>). In the good runs, the palm was already moving at 0.19&nbsp;m/s when a 0.32&nbsp;m/s box touched it, the impact was 5.4&nbsp;N, and the box stopped on the spot.</li>
+<li><b>Free hand.</b> The right hand is parked in the smoothed fold, with its wrist on the heading, so it never feeds body sway back into the walker.</li>
+<li><b>Start pose.</b> At spawn the elbows are at 0, which means 90&deg; bent with the forearms pointing <em>forward</em>, over the belt when the robot stands close. <em>StartShoulderDeg</em> (25, 10, 0) and <em>StartElbowDeg</em> (−40) are written straight into the joint positions on the first frame, and the first IK targets are aimed at the fold point.</li>
+</ul>
+
+<h2>8. Catch &rarr; grasp handoff</h2>
+<table>
+<thead><tr><th style="width:21%">Version</th><th style="width:43%">What the run showed</th><th>Change / decision</th></tr></thead>
+<tbody>
+<tr><td>v1: holder flag and normal <code>Reachable()</code> (commit <code>8863226</code>)</td><td>The catch was good, but the give carried the box 10.4&nbsp;cm left and the body drifted 2&nbsp;cm right. The box ended 12&nbsp;cm left of straight ahead, so the right grip point sat 0.4&nbsp;cm from the centre line and MinSide failed. With the box path at x 0.77 the left hand was 9–12&nbsp;cm short (capped).</td><td>The right arm never got a target. The box path has to stay at x ≈ 0.63.</td></tr>
+<tr><td>Give-travel planning (start the spot 11&nbsp;cm up the belt)</td><td>Worse. With the box at x 0.715 the waiting point (x 0.49) ended up 5&nbsp;cm <em>over</em> the belt and 3&nbsp;cm above it. The sagging, fully stretched hand rammed the conveyor (70–237&nbsp;N, sim 0.2&times; real time).</td><td><b>Rolled back</b> to <code>8863226</code>. The patch is saved in the scratchpad (<code>uncommitted_give_plan.patch</code>).</td></tr>
+<tr><td>v2: pinned holder (commit <code>9a291ce</code>)</td><td>The catch phase is untouched. The left target is pinned where its IK command was when the box was caught, and from then on only its squeeze, the lift and the carry move it. The right hand gets its own reach check (MinSide only warns) and goes in through PreGrasp. The grasp ran: right hand at 93%, slid in, both "placed". The grip was declared, but the palms were at 0&nbsp;N: curled fingertips (26–28&nbsp;N) held the palms off the faces. The box rotated at 0.46–1.1&nbsp;rad/s and slipped 5.2&nbsp;cm in the lift.</td><td>Rotation diagnosis (section&nbsp;9). Then: palm-on-face became a live check with finger back-off, and the palms are levelled and kept fully on their faces.</td></tr>
+<tr><td>Palm fixes (uncommitted)</td><td>The palms now reach the faces, but contact keeps switching between the palm and the flush, straight finger links (about 20&nbsp;N palm / 0 fingers, then the reverse, every 40&nbsp;ms). The live palm check flickers, so the grip never confirms. Meanwhile the box is squeezed <em>out forward</em> (x 0.667 &rarr; 0.885, up to 0.58&nbsp;m/s) with the palms only 1–4&deg; off parallel.</td><td>Effective hand friction ≈ the box's 0.01. Hand friction class added to the MJCF (section&nbsp;9). Flicker fix proposed (section&nbsp;12).</td></tr>
+</tbody>
+</table>
+<p><b>Holder mechanics.</b> <code>HoldHere()</code> stores the holder's offset from its normal <code>HandTarget</code> in grip-frame components (along m_Lat, m_Fwd, up). <code>HandTarget</code> adds the offset back for the holder in the current frame, which follows the body while carrying. Two things follow: the holder never jumps when phases change, and it stays pinned through the squeeze, lift, carry and place. While a box is held, PreGrasp and Squeeze don't re-read the box every frame. If they did, the holder's target would follow the box, and a box leaning on the palm would creep away with it.</p>
+<p><b>Right palm height.</b> The right palm goes level with the holder's on a box wide enough for the two straight thumbs to pass (width over about 2&nbsp;&times;&nbsp;0.095&nbsp;m). On a narrower box it goes 3.6&nbsp;cm above. Either way it's clamped so the whole palm stays on the face, at least BeltClearance above the box bottom and under the box top.</p>
+<p><b>Palm-driven squeeze, live.</b> "Palm on its face" turns on at TouchForce and off below half of it. The fingers curl only while it's on and ease back at twice the rate when it isn't. The grip counts only if both palms are on at that moment.</p>
+
+<h2>9. Friction and the slipping box</h2>
+<div class="box"><b class="t">Why a two-point grip lets the box pivot</b>
+When only fingertips touch, the box is held at two points and can rotate about the line between them. The only thing resisting that is <em>torsional</em> friction, the second friction number: 0.005&nbsp;m &times; 27&nbsp;N ≈ 0.13&nbsp;N&middot;m per hand. The box's weight (about 9.7&nbsp;N for the 0.30 box) acts 3–5&nbsp;cm from that line, a twist of 0.3–0.5&nbsp;N&middot;m, so the box rotated (logged 0.46–1.1&nbsp;rad/s). Flat palms on the faces resist this; a torsional value of about 0.05 would too (about 1.3&nbsp;N&middot;m per hand).</div>
+<div class="box warn"><b class="t">Effective hand–box friction is close to the box's, not the hand's</b>
+With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a contact with &mu; = 1 can't be pushed out: the box would need a push of about 56&nbsp;N. Yet the box slid out forward at up to 0.58&nbsp;m/s. The belt's numbers show MuJoCo combining box and belt with the usual "larger of the two" rule. So the hands must be getting about the box's 0.01. Either the engine gives scene geoms precedence, or the robot's hand geoms have low friction. This wasn't verified directly, because there's no API to read geom friction.</div>
+<p><b>Fix applied</b> (robot model, outside the repo; backup <code>g1_three_fingers.xml.bak</code> in the scratchpad). A new default class under <code>collision</code>, used by all 18 hand collision geoms: both wrist_yaw/palm geoms plus thumb_0/1/2, index_0/1 and middle_0/1, per hand:</p>
+<pre>&lt;default class="hand"&gt;
+  &lt;geom priority="2" friction="1.5 0.05 0.0001" condim="4"/&gt;
+&lt;/default&gt;</pre>
+<p>With a higher <code>priority</code>, MuJoCo uses that geom's friction outright instead of combining the two. The hands therefore grip with &mu;&nbsp;=&nbsp;1.5 and torsion 0.05 whatever they touch, while the box-on-belt contact keeps its low friction. <code>condim="4"</code> makes the torsional value take effect. This change is not yet tested.</p>
+
+<h2>10. Engine facts and gotchas learned</h2>
+<table>
+<thead><tr><th style="width:26%">Topic</th><th>Fact</th></tr></thead>
+<tbody>
+<tr><td>Scene body names</td><td>Scene entities with MuJoCo colliders become bodies named <code>lucky_body_&lt;entityID&gt;</code>. <code>GetBodyID(tag)</code> fails for them, which is why the old BeltForce and ConveyorGate scripts did nothing.</td></tr>
+<tr><td>Frames</td><td>MuJoCo-frame poses are converted with <code>Conjugate(GetAxisHzToMj())&middot;p + GetSceneTranslation()</code>. Hazel is Y-up; yaw = atan2(−z, x); left of a heading = (z, 0, −x).</td></tr>
+<tr><td>Weld API</td><td><code>WeldBody(uint bodyID, Vector3 positionMj, Quaternion orientationMj, bool persistent = true)</code> and <code>UnweldBody</code>. A single persistent call in <code>Begin</code> didn't hold a box. The user's own older scripts re-assert the weld every frame.</td></tr>
+<tr><td>No velocity or friction setters</td><td>Scripts can set qpos, ctrl and applied forces (<code>SetQfrcAppliedByDof</code>), but not qvel or geom friction. Bodies can't be added after the model is compiled, so use a pool of pre-placed boxes instead of spawning.</td></tr>
+<tr><td>Friction combination</td><td>Default: per component, the larger of the two geoms' values; with <code>priority</code>, the higher-priority geom's values. The engine uses a pyramidal friction cone (its log warns of a "Velcro effect"). Torsional friction only applies with condim ≥ 4.</td></tr>
+<tr><td>Spawn dynamics</td><td>The pelvis spawns at 0.793&nbsp;m with straight legs, drops to about 0.47–0.50 within 0.5&nbsp;s, lurches about 0.2–0.3&nbsp;m forward and back, and settles after about 3&nbsp;s, with or without arm motion.</td></tr>
+<tr><td>Elbow zero</td><td>Elbow 0 is 90&deg; bent with the forearm level and forward; +90&deg; is straight; −60&deg; is folded up.</td></tr>
+<tr><td>IK cap</td><td>The capped target is pulled straight in toward the shoulder, so capping is smooth. Jerks at 90%+ reach come from the near-straight arm's sensitivity, not from the cap.</td></tr>
+<tr><td>Motion graph</td><td>The <code>Start</code> trigger stores the current pose and blends to the IK solution over <code>Duration</code>; after that, targets are tracked every frame.</td></tr>
+<tr><td>Contact sensing</td><td>Hand contact force is read per geom and tared. With straight fingers, the palm and the proximal finger links are flush, and the reading switches between them from frame to frame.</td></tr>
+</tbody>
+</table>
+
+<h2>11. Scene layout rules</h2>
+<ul>
+<li><b>Box path in reach, but in front of the belt edge.</b> The waiting point is about 15&nbsp;cm in front of the box's front face and must stay in front of the belt's near edge (x 0.44). So the box centre should be at x ≤ about 0.66; x ≈ 0.60–0.63 works.</li>
+<li><b>Pelvis about 0.27&nbsp;m behind the box's front face</b>, x ≈ 0.28–0.31 for a box at 0.63. That gave a comfortable 80–83% reach. At a box path of 0.715–0.80 the left hand was capped at 104–115% and stayed 9–15&nbsp;cm short.</li>
+<li><b>Arrival time.</b> Box arrival should come after the spawn stagger (about 3&nbsp;s). Lower the tilt slightly or start the box further up the belt.</li>
+<li><b>Friction.</b> Keep the box's sliding &mu; below tan&theta; (about 70–80% of it). A far-side rail, 3–5&nbsp;cm high at x ≈ 1.03, catches knocked boxes.</li>
+<li><b>Belt twist.</b> Zero the belt's Rotation Y and Z (0.0099, −0.0016) so the box slides straight.</li>
+</ul>
+
+<h2>12. Commits, current state and next steps</h2>
+<table>
+<thead><tr><th>Commit</th><th>Date</th><th>Message</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>a571ea4</code></td><td>18 Oct 19:32</td><td>good enough pipeline</td><td>The inspector fields from section&nbsp;3 and the redrawn phase SVG.</td></tr>
+<tr><td><code>81c4fea</code></td><td>18 Oct 21:32</td><td>catch works</td><td>CatchBox phase: prediction, waiting point and slide-in, speed-matched give, parked free hand, continuous tracking.</td></tr>
+<tr><td><code>8863226</code></td><td>18 Oct 23:08</td><td>Catch works perfectly; the other arm is still not coming</td><td>Tucked start pose. Handoff v1, blocked by MinSide.</td></tr>
+<tr><td><code>9a291ce</code></td><td>19 Oct 21:20</td><td>Catch working perfectly; right arm comes in but the box slips</td><td>Pinned holder (HoldHere). Right-hand reach check. Holder kept through the carry.</td></tr>
+</tbody>
+</table>
+<p><b>Uncommitted right now:</b></p>
+<ul>
+<li>in <code>g1_grasp.cs</code> (29 lines added, 21 removed): the live palm-on-face check with finger back-off, and the right palm levelled and kept fully on its face;</li>
+<li>in the robot model: the hand friction class (outside the repo).</li>
+</ul>
+<h3>Next steps</h3>
+<ol>
+<li><b>Test the hand friction class.</b> Expect no more squirting, and much less pivoting.</li>
+<li><b>Palm-contact flicker.</b> While the fingers are nearly straight (curl under about 0.1&nbsp;rad), count palm plus finger force as "flat on the face". Still require palm-only contact before the fingers curl further.</li>
+<li><b>Robustness: the next topic you raised.</b> Make the catch and grasp work for different box sizes, not just favourable ones, and still work with zero torsional friction and when the box turns on impact. Candidate pieces:
+  <ul>
+  <li>re-read the box's yaw and centre after the catch, and re-align the grip frame and the right hand to it;</li>
+  <li>pick the stop spot and grip heights from the box's size;</li>
+  <li>plan the give's travel without letting the waiting point cross the belt edge;</li>
+  <li>check reach before the hand goes, and fail early with "move the box or robot by X";</li>
+  <li>a squeeze that resists rotation: palms at the same height, through the box's centre of mass, with the fingers kept straight until both palms carry load.</li>
+  </ul></li>
+<li><b>Message fixes.</b> The "box sits 0.25&nbsp;m too low" warning really means "too far ahead". A palm that never reaches its spot should report that, instead of "never stopped" after 15&nbsp;s.</li>
+<li><b>Repeat loop.</b> A pool of pre-placed boxes, or an end stop and recycle, for <em>RepeatLoop</em> with the catch.</li>
+</ol>
+
+<h2 class="pb">Appendix A. Inspector fields added</h2>
+<table>
+<thead><tr><th style="width:13%">Group</th><th style="width:22%">Field</th><th class="n" style="width:9%">Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Phases</td><td>CatchBox</td><td class="n">true</td><td>Catch boxes sliding down the conveyor from where the robot stands (off: only boxes resting on the belt are picked).</td></tr>
+<tr><td>Catch</td><td>CatchHandSpeed</td><td class="n">0.5 m/s</td><td>Top speed of the stopper hand's IK target as it tracks its spot.</td></tr>
+<tr><td>Catch</td><td>CatchShiftMax</td><td class="n">0.15 m</td><td>How far the stop spot may move down the belt when the box would beat the hand.</td></tr>
+<tr><td>Catch</td><td>CatchGive</td><td class="n">0.06 m</td><td>Braking distance of the give once the box is on the palm.</td></tr>
+<tr><td>Catch</td><td>CatchSpeed</td><td class="n">0.03 m/s</td><td>Below this, a box against the palm counts as stopped.</td></tr>
+<tr><td>Catch</td><td>CatchTime</td><td class="n">0.3 s</td><td>How long it must stay stopped to count as caught.</td></tr>
+<tr><td>Arms</td><td>StartShoulderDeg</td><td class="n">(25, 10, 0)</td><td>Left shoulder pitch, roll and yaw at the start (right mirrored).</td></tr>
+<tr><td>Arms</td><td>StartElbowDeg</td><td class="n">−40</td><td>Elbow at the start (0 level, +90 straight, −60 folded).</td></tr>
+<tr><td>Arms</td><td>HandLimit</td><td class="n">93 %</td><td>Planning reach limit, measured from the standing pose.</td></tr>
+<tr><td>Arms</td><td>IKTargetLimit</td><td class="n">95 %</td><td>Per-frame IK target cap, measured from the live shoulder.</td></tr>
+<tr><td>Arms</td><td>GripForceLimit</td><td class="n">100 %</td><td>Share of the required squeeze each hand must hold for the grip to count.</td></tr>
+<tr><td>Arms</td><td>GripComfort</td><td class="n">85 %</td><td>Share of the arm the grip is planned within.</td></tr>
+<tr><td>Arms</td><td>MaxSqueezeDepth</td><td class="n">0.03 m</td><td>How far past its face a palm target may go.</td></tr>
+<tr><td>Thumb</td><td>ThumbOpenDeg / ThumbGripDeg / ThumbTipDeg</td><td class="n">41.25 / 0 / 0</td><td>Thumb open (not gripping), thumb in and thumb tip bend (gripping), clamped to the joint limits.</td></tr>
+<tr><td>Tolerances</td><td>ReachTolerance</td><td class="n">0.05 m</td><td>Grasp site this close to its target counts as in position.</td></tr>
+<tr><td>Tolerances</td><td>ReachProgress</td><td class="n">0.005 m</td><td>Smallest drop in hand error that counts as progress.</td></tr>
+<tr><td>Tolerances</td><td>PlacedInside / PlacedFront / PlacedTop</td><td class="n">0.015 / 0.03 / 0.01 m</td><td>The "hand is beside the box" checks.</td></tr>
+<tr><td>Tolerances</td><td>PlacedWait</td><td class="n">0.5 s</td><td>Hands beside the box must stop improving for this long before the grasp starts.</td></tr>
+<tr><td>Tolerances</td><td>TopMargin</td><td class="n">0.02 m</td><td>A raised grip keeps its sites this far under the box top.</td></tr>
+<tr><td>Tolerances</td><td>AlignYawDeg / AlignSide / AlignForward</td><td class="n">8&deg; / 0.06 / 0.05 m</td><td>Approach alignment tolerances.</td></tr>
+<tr><td>Tolerances</td><td>MinSide / MaxGripUp</td><td class="n">0.11 / 0.15 m</td><td>Smallest grip-point distance from the centre line; highest grip point over the pelvis before a warning.</td></tr>
+<tr><td>Tolerances</td><td>StillSpeed / StillTime</td><td class="n">0.05 m/s / 0.5 s</td><td>The body counts as still below this speed, for this long.</td></tr>
+<tr><td>Tolerances</td><td>TouchForce</td><td class="n">2 N</td><td>A hand this loaded is at the box (also the palm-on threshold).</td></tr>
+<tr><td>Tolerances</td><td>SlipTolerance / DropTolerance / LostDistance</td><td class="n">0.01 / 0.05 / 0.25 m</td><td>Slip before boosting the squeeze, slip that counts as a drop, how far the box may move before it counts as gone.</td></tr>
+</tbody>
+</table>
+<p class="k">The scene's saved values differed in places, for example MinSide 0.08, MaxSqueezeDepth 0.05, GripComfort 95, ThumbOpenDeg 30, ApproachGap 0.02, BeltClearance 0.02, MaxBoxAttempts 5, WalkToBox false.</p>
+
+<h2>Appendix B. Key formulas</h2>
+<table>
+<thead><tr><th style="width:32%">Quantity</th><th>Formula</th></tr></thead>
+<tbody>
+<tr><td>Required squeeze per hand</td><td>GripSafetyFactor &middot; m &middot; g / (2&middot;BoxFriction) &middot; boost</td></tr>
+<tr><td>Box acceleration on the belt</td><td>a = g(sin&theta; − &mu;cos&theta;); frictionless arrival speed v = √(2 g sin&theta; d)</td></tr>
+<tr><td>Distance a knocked box slides sideways</td><td>v² / (2&mu;g)</td></tr>
+<tr><td>Downhill direction in the belt plane</td><td>d = normalize(n &middot; n<sub>y</sub> − up), |n&middot;n<sub>y</sub> − up| = sin&theta;</td></tr>
+<tr><td>Box arrival time at the stop spot</td><td>t = (−v + √(v² − 2a&middot;past)) / a, with past &lt; 0 while the box is still uphill</td></tr>
+<tr><td>Speed-matched give (approach)</td><td>v<sub>palm</sub> = v<sub>box</sub>(1 − √(min(1, gap / 0.05&nbsp;m))): meets the box at its speed after about 2&times;0.05/v seconds and 5&nbsp;cm of palm travel</td></tr>
+<tr><td>Give braking</td><td>deceleration = v<sub>palm</sub>² / (2 &middot; CatchGive)</td></tr>
+<tr><td>Stopper tracking step</td><td>move = min(dist &middot; (1 − e<sup>−dt/0.1&nbsp;s</sup>), CatchHandSpeed &middot; dt); in the give, move = dist</td></tr>
+<tr><td>Holder offset (HoldHere)</td><td>d = Cmd − HandTarget; offset = (d&middot;lat, d&middot;fwd, d<sub>y</sub>); target = HandTarget + offset in the current grip frame</td></tr>
+<tr><td>Twist resisted by torsional friction</td><td>&tau; = &mu;<sub>torsion</sub> &middot; N per contact, against the box's weight &times; its offset from the grip line</td></tr>
+</tbody>
+</table>
+
+</body>
+</html>
