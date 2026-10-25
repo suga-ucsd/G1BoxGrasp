@@ -62,6 +62,7 @@ namespace G1Pipe
             public MujocoActuator[] Joints = new MujocoActuator[0]; // shoulder pitch, roll, yaw, elbow (IK), wrist roll, pitch, yaw (script)
             public uint[] WristLink = new uint[0]; // the links those joints turn
             public float[] WristQ = new float[0]; // wrist ctrl targets (rad)
+            public uint[] WristAdr = new uint[0]; // wrist joints' qpos addresses (measured angles for the log)
             public float PalmErr; // deg between the palm normal and the squeeze axis
             public MujocoActuator[] Hand = new MujocoActuator[0]; // thumb 1, thumb 2, index 0, middle 0 (script-owned)
             public bool[] IsThumb = new bool[0]; // which hand geoms are thumb links
@@ -69,6 +70,7 @@ namespace G1Pipe
             public float ThumbForce,
                 PalmForce; // tared thumb contact force on the front face; palm-only share of Force (N)
             public bool PalmOn; // the palm is on its face now (fingers may curl only while it is)
+            public float HeldGap; // gap when the grip was confirmed: while holding, the hand never opens past it
             public bool Capped; // its IK target is being pulled in to MaxReach of the shoulder
             public float Thumb,
                 Tip,
@@ -145,11 +147,15 @@ namespace G1Pipe
             k_GiveMatch = 0.05f,
             k_GiveTouch = 0.005f; // m short of its stop spot a stopped box still counts as caught; m the box must still be short of it when the palm arrives; s the arm lags its IK target;
 
+        private const float k_CentreSpeed = 0.05f,
+            k_CentreMax = 0.15f; // m/s the holder pushes a caught box up the belt toward the body's centre line; m at most
+
         // m the grasp site waits in front of the box's front face before sliding in (+ FrontInset; the fingertips reach ~8.5 cm past it); s smoothing of the measured box acceleration; s spare the stopper leaves itself when it must go before the body is still; s spare the slide in must have before the box comes; s easing time constant of the stopper's command near its target; m short of the palm the box is when the palm starts matching its speed; m short of the palm the box counts as on it
         private const float k_DepthGain = 0.002f,
             k_MaxSqueezeRate = 0.02f; // squeeze admittance: m/(N*s), m/s
         private const float k_SqueezeMargin = 1.25f,
             k_GripConfirm = 0.5f; // palms press toward this x the required force; grip OK: both palms on their faces and each hand (palm + fingers) >= the required force for 0.5 s
+        private const float k_HoldDepth = 0.01f; // m a holding hand may squeeze past its confirmed gap
         private const float k_LiftSpeed = 0.05f; // m/s
         private const float k_CarrySpeed = 0.1f; // m/s, box moves in the hands
         private const float k_PlaceHover = 0.05f,
@@ -248,6 +254,15 @@ namespace G1Pipe
         public float WalkSpeed = 0.3f; // m/s
 
         [Group("Walk")]
+        public float CarryWalkSpeed = 0.15f; // m/s, walking speed cap while carrying the box
+
+        [Group("Walk")]
+        public float CarryTurnRate = 0.35f; // rad/s, turning speed cap while carrying the box
+
+        [Group("Walk")]
+        public float CarryAccel = 0.3f; // m/s^2 (rad/s^2 for the yaw rate), walk command ramp while carrying, so the body never jerks the box
+
+        [Group("Walk")]
         public float StandDistance = 0.33f; // m, pelvis -> box centre when grasping (arm reach limit)
 
         [Group("Walk")]
@@ -288,6 +303,9 @@ namespace G1Pipe
 
         [Group("Catch")]
         public float CatchHandSpeed = 0.5f; // m/s top speed of the stopper hand's IK target as it tracks its spot (eases in over the last few cm)
+
+        [Group("Catch")]
+        public float CatchPalmSide = 0.17f; // m out from the pelvis centre line the stopper palm stops the box, whatever its size (its centre sits half its width inside)
 
         [Group("Catch")]
         public float CatchShiftMax = 0.15f; // m the stop spot may move down the belt from straight ahead when the box would beat the hand there
@@ -385,6 +403,9 @@ namespace G1Pipe
         [Group("Arms")]
         public float GripForceLimit = 100f; // % of the required squeeze each hand must hold for the grip to count (lower it if squeezes stall short)
 
+        [Group("Arms")]
+        public bool LockWrists = false; // wrist servo off: the wrists hold where they are (their zero pose if on from the start)
+
         [Group("Thumb")]
         public float ThumbOpenDeg = 41.25f; // deg the thumb swings back (out) while not gripping (joint limit 41.5)
 
@@ -479,7 +500,8 @@ namespace G1Pipe
             m_Accel,
             m_PrevV; // catch: along-path position of the spot straight ahead of the pelvis; stop spot shift down the belt from it and give (m); give speed (m/s) and braking (m/s^2); box acceleration measured down the belt (m/s^2) and its last speed (m/s)
         private float m_PeakSpeed,
-            m_PeakForce; // catch: fastest the box came, hardest it hit the stopper hand
+            m_PeakForce,
+            m_Caught; // catch: fastest the box came, hardest it hit the stopper hand; m_Give when caught (the centring push starts there)
         private int m_Box = -1; // index of the box being handled
         private uint m_PelvisId = uint.MaxValue;
         private Quaternion m_MjToHz = Quaternion.Identity; // MuJoCo -> Hazel axes
@@ -675,7 +697,8 @@ namespace G1Pipe
             m_ChuteTop; // conveyor surface normal and the centre of its top face
         private Vector3 m_Stand,
             m_Slot; // where the pelvis walks to (fixed per goal); where the box goes down
-        private Vector3 m_Cmd; // last walk command (vx, vy, yaw rate), for the log
+        private Vector3 m_Cmd; // walk command asked for this frame (vx, vy, yaw rate)
+        private Vector3 m_Sent; // walk command last sent to the policy (ramped toward m_Cmd while carrying)
         private float m_ToGo,
             m_LogTimer; // distance left to the walk goal (m); time since the last status line
 
@@ -883,6 +906,7 @@ namespace G1Pipe
                     SendHands(Fold, false);
                     break; // Done / Failed: stand with the arms folded
             }
+            SendDrive(ts);
             if (m_Phase == Phase.Start)
                 return;
             OrientWrists(ts);
@@ -981,6 +1005,10 @@ namespace G1Pipe
                 a.WristLink = Array.ConvertAll(
                     new[] { "_wrist_roll_link", "_wrist_pitch_link", "_wrist_yaw_link" },
                     l => m_Mujoco.GetBodyID(a.Name + l)
+                );
+                a.WristAdr = Array.ConvertAll(
+                    new[] { "_wrist_roll_joint", "_wrist_pitch_joint", "_wrist_yaw_joint" },
+                    j => m_Mujoco.GetJointQposAdr(m_Mujoco.GetJointID(a.Name + j))
                 );
                 a.Site = m_Mujoco.GetSiteID(a.Name + "_grasp_site");
                 a.Shoulder = m_Mujoco.GetBodyID(a.Name + "_shoulder_pitch_link");
@@ -1397,17 +1425,18 @@ namespace G1Pipe
             Advance(Phase.Catch);
         }
 
-        // Catch, every frame. Steps: 0 both hands folded while the body settles (the stop spot follows the pelvis: straight ahead of it on the
-        // path), until it has been still for StillTime or the box is so close the stopper must go; 1 stopper to its waiting point in front of the
+        // Catch, every frame. Steps: 0 both hands folded while the body settles (the stop spot follows the pelvis: on the path with the palm
+        // CatchPalmSide out from its centre line, so the arm's catch pose is the same for any box size), until it has been still for StillTime or the box is so close the stopper must go; 1 stopper to its waiting point in front of the
         // box's path (palm height, fingertips k_CatchFront clear of its front face); 2 slide in along the forward axis onto the stop spot; 3 in
-        // place (contact tared); 4 give; 5 caught. From step 1 the spot is fixed in the world, except that once the stopper is at its waiting
+        // place (contact tared); 4 give; 5 caught (then pushed up the belt, at most k_CentreMax, until the other hand's grip point is MinSide off the body's centre line). From step 1 the spot is fixed in the world, except that once the stopper is at its waiting
         // point (and only there) it moves down the belt (never back up, at most CatchShiftMax) to k_CatchClear past where the box will be when the
         // palm gets there - predicted from its speed and its measured acceleration; the slide only starts with time to finish before the box
         // (+ k_SlideSpare), and from then the spot is fixed, so the palm only moves straight forward into the box's path, never along it.
         // Give: over the box's last k_GiveMatch before it reaches the palm, the spot speeds up so the gap closes at a steadily falling rate (they meet
         // with almost no speed between them); once the box is on the palm (contact, or within k_GiveTouch) it brakes to a stop over CatchGive, so the box is slowed by a
         // yielding palm instead of bouncing off a stiff one. The palm is centred on the box's mid-height (StopTarget). Caught once the give is over
-        // and the box stays slower than CatchSpeed for CatchTime within k_CatchZone of the spot; then it stays held there. Fails if it gets
+        // and the box stays slower than CatchSpeed for CatchTime within k_CatchZone of the spot - or of the real palm, when the arm can't
+        // quite reach its spot (from step 2 on: a box already resting on a late palm counts too); then it stays held there. Fails if it gets
         // past the stopper, falls off the belt, or never arrives.
         private void StepCatch(float ts)
         {
@@ -1441,7 +1470,11 @@ namespace G1Pipe
             if (m_Step == 0)
             {
                 Vector3 left = LeftOf(Heading());
-                m_Ahead = Vector3.Dot(Pelvis() - m_Path, left) / Vector3.Dot(m_Downhill, left);
+                m_Ahead =
+                    (
+                        Vector3.Dot(Pelvis() - m_Path, left)
+                        + s.Side * (CatchPalmSide - m_HalfW - PalmOffset)
+                    ) / Vector3.Dot(m_Downhill, left);
             }
             else if (m_Step == 1 && err <= ReachTolerance)
             {
@@ -1537,9 +1570,25 @@ namespace G1Pipe
             }
             if (m_Step == 5)
             {
+                Arm r = s == m_Arms[0] ? m_Arms[1] : m_Arms[0];
+                float need = Math.Min(
+                    MinSide
+                        - r.Side * Vector3.Dot(Flat(GripPoint(r) - Pelvis()), LeftOf(Heading())),
+                    k_CentreMax + m_Give - m_Caught
+                ); // the other hand's grip point short of MinSide off the body's centre line
+                if (need > 0.002f)
+                {
+                    if (m_Give == m_Caught)
+                        Log.Info(
+                            $"[G1] {r.Name} grip point {need:F3} m short of MinSide off the body's centre line -> {s.Name} hand pushes the box up the belt toward the centre"
+                        );
+                    m_Give -= Math.Min(k_CentreSpeed * ts, need);
+                    m_StepTime = 0f;
+                    return;
+                }
                 if (!AwaitStill(m_StepTime, "before grasping the caught box"))
                     EnterGrasp();
-                return; // caught: hold it there until the body is still, then grasp
+                return; // caught: hold it there (pushed toward the centre if the other hand can't reach it) until the body is still, then grasp
             }
             if (past > m_HalfW || ChuteGap(m_Box) < -0.05f || m_PhaseTime > PhaseTimeout)
             {
@@ -1547,17 +1596,20 @@ namespace G1Pipe
                     past > m_HalfW
                         ? $"box got past the {s.Name} hand ({past:F3} m beyond the stop spot, step {m_Step}{(m_Step <= 1 ? " - too late to slide the palm in" : "")}, hand {err:F3} m off its target)"
                     : ChuteGap(m_Box) < -0.05f ? "box fell off the belt"
-                    : $"box never stopped at the {s.Name} hand: {-past:F3} m short, {speed:F3} m/s after {m_PhaseTime:F0} s"
+                    : $"box never stopped at the {s.Name} hand: {-past:F3} m short of the stop spot, {Vector3.Dot(SiteWorld(s.Site) - c, m_Downhill) - PalmOffset - m_HalfW:F3} m off the real palm, {speed:F3} m/s after {m_PhaseTime:F0} s"
                 );
                 return;
             }
-            if (m_Step < 4 || m_GiveV > 0f || speed > CatchSpeed || past < -k_CatchZone)
-                m_StepTime = 0f; // from here m_StepTime = time stopped at the hand after the give
+            float palmGap = Vector3.Dot(SiteWorld(s.Site) - c, m_Downhill) - PalmOffset - m_HalfW; // box's downhill face short of the real palm (the arm may not reach its spot)
+            bool atHand = past >= -k_CatchZone || palmGap <= k_CatchZone;
+            if (m_Step < 2 || m_GiveV > 0f || speed > CatchSpeed || !atHand)
+                m_StepTime = 0f; // from here m_StepTime = time stopped at the hand (after the give, or resting on a palm that got there late)
             if (m_StepTime < CatchTime)
                 return;
             Log.Info(
-                $"[G1] caught box {m_Box} after {m_PhaseTime:F2} s: {-past:F3} m short of the stop spot, came at up to {m_PeakSpeed:F2} m/s, gave {m_Give:F3} m, hand force up to {m_PeakForce:F1} N, now {s.Force:F1} N | holding it there for the grasp"
+                $"[G1] caught box {m_Box} after {m_PhaseTime:F2} s{(m_Step < 4 ? $" (at rest on the palm in step {m_Step}, before the give)" : "")}: {-past:F3} m short of the stop spot ({palmGap:F3} m off the real palm), came at up to {m_PeakSpeed:F2} m/s, gave {m_Give:F3} m, hand force up to {m_PeakForce:F1} N, now {s.Force:F1} N | holding it there for the grasp"
             );
+            m_Caught = m_Give;
             NextStep();
         }
 
@@ -1734,7 +1786,7 @@ namespace G1Pipe
             Vector3 c = BoxCenter(m_Box);
             Log.Info(
                 $"[G1] PG t={m_PhaseTime:F2} step {m_Step} ({(m_Step == 0 ? "to the pre-grip points" : "sliding in")}) | sim {speed:F2}x real time ({wall * 1000f:F0} ms wall)"
-                    + $" | pelvis {F(Pelvis())} v {F(m_MjToHz * pv)} ({pv.Length():F3} m/s) yaw {YawOf(Heading()) * Mathf.Rad2Deg:F1} deg, ang vel {pw.Length():F3} rad/s | walk cmd {F(m_Cmd)}"
+                    + $" | pelvis {F(Pelvis())} v {F(m_MjToHz * pv)} ({pv.Length():F3} m/s) yaw {YawOf(Heading()) * Mathf.Rad2Deg:F1} deg, ang vel {pw.Length():F3} rad/s | walk cmd {F(m_Sent)}"
                     + $" | box {F(c)} v {bv.Length():F3} m/s, ang vel {bw.Length():F3} rad/s, {(c - m_PickAt).Length():F3} m from the reach start, {(c - m_BoxAt).Length():F3} m from the last re-read, belt gap {ChuteGap(m_Box):F3} m, contact {m_Mujoco.GetGeomContactForce(m_Boxes[m_Box].Geom):F1} N"
                     + $" | grip frame centre {F(m_Center)} fwd {F(m_Fwd)}, grip lift {m_GripLift:F3} m{(speed < 0.5f ? " | SIM SLOW" : "")}"
             );
@@ -1761,6 +1813,7 @@ namespace G1Pipe
                         + $" | box frame: palm {side:F3} out, thumb {front:F3} fwd, site {up:F3} up{(placed ? " (placed)" : "")}, gap {a.Gap:F3} m, slide {m_Slide:F3} m"
                         + $" | force palm {a.Force:F1} thumb {a.ThumbForce:F1} N, touching [{string.Join(", ", touching)}] | palm {a.PalmErr:F0} deg off"
                         + $" | joints deg [{string.Join(", ", Array.ConvertAll(q, v => (v * Mathf.Rad2Deg).ToString("F0")))}], max change {jump * Mathf.Rad2Deg:F1} deg since the last line"
+                        + $" | {WristLog(a)}"
                 );
             }
         }
@@ -1812,7 +1865,7 @@ namespace G1Pipe
                     : $"{PalmMidY() - c.Y - m_Y0:F3} m (+ = box sliding down)";
             Log.Info(
                 $"[G1] GR {m_Phase} t={m_PhaseTime:F2} | sim {speed:F2}x real time | need {RequiredForce():F1} N per palm (boost {m_Boost:F2}), lift {m_Lift:F3} m"
-                    + $" | pelvis {F(Pelvis())} {pv.Length():F3} m/s, ang vel {pw.Length():F3} rad/s, yaw {YawOf(Heading()) * Mathf.Rad2Deg:F1} deg | walk cmd {F(m_Cmd)}"
+                    + $" | pelvis {F(Pelvis())} {pv.Length():F3} m/s, ang vel {pw.Length():F3} rad/s, yaw {YawOf(Heading()) * Mathf.Rad2Deg:F1} deg | walk cmd {F(m_Sent)}"
                     + $" | box {F(c)} v {bv.Length():F3} m/s, ang vel {bw.Length():F3} rad/s, slip {slip}, hand gap {(SiteWorld(m_Arms[0].Site) - SiteWorld(m_Arms[1].Site)).Length():F3} m (palms touch at {2f * (m_HalfW + PalmOffset):F3}){(speed < 0.5f ? " | SIM SLOW" : "")}"
             );
             foreach (Arm a in m_Arms)
@@ -1834,6 +1887,7 @@ namespace G1Pipe
                     $"[G1] GR   {a.Name}: palm {a.PalmForce:F1} N{(a.PalmOn ? "" : " (off its face)")}, fingers {a.Force - a.PalmForce:F1} N, thumb {a.ThumbForce:F1} N"
                         + $" | gap target {a.Gap:F3} m, palm measured {face:F3} m off its face, palm height on the face {on * 100f:F0}% (lower edge {lo - (c.Y - m_HalfH):F3} m over the box bottom)"
                         + $" | curl {a.Curl:F2} rad, thumb {a.Thumb:F2} rad, palm {a.PalmErr:F0} deg off | err {HandError(a):F3} m | touching [{string.Join(", ", touching)}]"
+                        + $" | {WristLog(a)}"
                 );
             }
         }
@@ -1866,6 +1920,8 @@ namespace G1Pipe
                     $"[G1] grip: palm L={m_Arms[0].PalmForce:F1} R={m_Arms[1].PalmForce:F1} N (need {need:F1} of {req:F1} N), fingers L={m_Arms[0].Force - m_Arms[0].PalmForce:F1} R={m_Arms[1].Force - m_Arms[1].PalmForce:F1} N, thumb L={m_Arms[0].ThumbForce:F1} R={m_Arms[1].ThumbForce:F1} N, curl L={m_Arms[0].Curl:F2} R={m_Arms[1].Curl:F2} rad, gap L={m_Arms[0].Gap:F3} R={m_Arms[1].Gap:F3} m"
                 );
                 m_Y0 = PalmMidY() - BoxCenter(m_Box).Y;
+                foreach (Arm a in m_Arms)
+                    a.HeldGap = a.Gap;
                 m_Slot = m_Center - Vector3.Up * m_HalfH; // pick spot (bottom centre): where the box goes back when not carried to the table
                 m_Repositions = 0;
                 bool far = GripAhead() > k_DragFrom;
@@ -2389,7 +2445,7 @@ namespace G1Pipe
         // While holding: keep squeezing, track the hand targets, boost the force if the box slips, fail if it slides out.
         private bool Hold(float ts)
         {
-            Squeeze(ts, RequiredForce());
+            Squeeze(ts, RequiredForce(), true);
             SendHands(HandTarget, false);
             LogGrip(ts);
             float slip = PalmMidY() - BoxCenter(m_Box).Y - m_Y0; // + = box sliding down between the palms
@@ -2406,20 +2462,31 @@ namespace G1Pipe
         // Squeeze per hand, on the palm's own force only (fingertips can't hold the palm off the face): the gap closes at full rate until the
         // palm touches, then presses toward k_SqueezeMargin x target (admittance). Index + middle curl in only while the palm is on its face
         // (on at TouchForce, off under half of it) and ease back as soon as it leaves, so curled fingertips never hold the palm off the face.
-        private void Squeeze(float ts, float target)
+        // Once held (the grip confirmed), carry jostle makes the palm contact flicker, so the whole hand's force counts, the gap stays within
+        // k_HoldDepth inside the confirmed one and the fingers never ease back.
+        private void Squeeze(float ts, float target, bool held = false)
         {
             ReadForces();
             foreach (Arm a in m_Arms)
             {
+                bool free = !held && !a.PalmOn && a.Force + a.ThumbForce < TouchForce; // nothing touching yet: close at full rate, whatever the box weighs
                 a.Gap = Mathf.Clamp(
                     a.Gap
-                        - Mathf.Clamp(
-                            k_DepthGain * (k_SqueezeMargin * target - a.PalmForce),
-                            -k_MaxSqueezeRate,
-                            k_MaxSqueezeRate
+                        - (
+                            free
+                                ? k_MaxSqueezeRate
+                                : Mathf.Clamp(
+                                    k_DepthGain
+                                        * (
+                                            k_SqueezeMargin * target
+                                            - (held ? a.Force : a.PalmForce)
+                                        ),
+                                    -k_MaxSqueezeRate,
+                                    k_MaxSqueezeRate
+                                )
                         ) * ts,
-                    -MaxSqueezeDepth,
-                    ApproachGap + k_Widen
+                    held ? a.HeldGap - k_HoldDepth : -MaxSqueezeDepth,
+                    held ? a.HeldGap : ApproachGap + k_Widen
                 );
                 bool on = a.PalmForce >= (a.PalmOn ? 0.5f * TouchForce : TouchForce);
                 if (on != a.PalmOn)
@@ -2427,8 +2494,9 @@ namespace G1Pipe
                         $"[G1] GR {a.Name} palm {(on ? "on" : "off")} its face in {m_Phase} ({a.PalmForce:F1} N, gap {a.Gap:F3} m, fingers {a.Force - a.PalmForce:F1} N, curl {a.Curl:F2} rad) -> fingers {(on ? "curl in" : "ease back")}"
                     );
                 a.PalmOn = on;
-                a.Curl = on
-                    ? Math.Min(a.Curl + k_CurlRate * ts, k_MaxCurl)
+                a.Curl =
+                    on ? Math.Min(a.Curl + k_CurlRate * ts, k_MaxCurl)
+                    : held ? a.Curl
                     : Math.Max(0f, a.Curl - 2f * k_CurlRate * ts);
             }
         }
@@ -2718,7 +2786,7 @@ namespace G1Pipe
 
         // Wrist servo: turns each hand toward its zero-pose frame on the grip axes - fingers (X) along forward, Y along the squeeze axis, so the
         // left palm (-Y) and right palm (+Y) face the box; heading axes when not gripping (and for the catch's parked hand). Closed on the measured hand frame, whatever the IK does.
-        // A hand still climbing out from low down keeps its wrist still (turning there would swing the fingers into the belt).
+        // A hand still climbing out from low down keeps its wrist still (turning there would swing the fingers into the belt); LockWrists keeps both still always.
         private void OrientWrists(float ts)
         {
             bool grip = m_Phase >= Phase.Ready && m_Phase <= Phase.Release;
@@ -2738,6 +2806,8 @@ namespace G1Pipe
                             + Vector3.Cross(r * s_Axes[2], z)
                         ) * 0.5f; // rotation error
                 a.PalmErr = Mathf.Acos(Mathf.Clamp(Vector3.Dot(cy, y), -1f, 1f)) * Mathf.Rad2Deg;
+                if (LockWrists)
+                    continue;
                 for (int i = 0; i < 3; i++)
                 {
                     m_Mujoco!.GetActuatorCtrlRange(
@@ -2759,6 +2829,11 @@ namespace G1Pipe
                 }
             }
         }
+
+        // Wrist roll / pitch / yaw: commanded vs measured (deg) - the actuators' torque limits let contact loads push the joints off their command.
+        private string WristLog(Arm a) =>
+            $"wrist cmd [{string.Join(", ", Array.ConvertAll(a.WristQ, v => (v * Mathf.Rad2Deg).ToString("F0")))}]"
+            + $" measured [{string.Join(", ", Array.ConvertAll(a.WristAdr, i => (m_Mujoco!.GetJointPosition(i) * Mathf.Rad2Deg).ToString("F0")))}] deg";
 
         // Folded hand target in front of the body.
         private Vector3 Fold(Arm a) => BodyPoint(Mirror(FoldOffset, a.Side));
@@ -2910,19 +2985,20 @@ namespace G1Pipe
         {
             Vector3 to = Flat(goal - Pelvis()),
                 fwd = Heading();
-            float err = Mathf.WrapToPi(YawOf(to) - YawOf(fwd));
+            float err = Mathf.WrapToPi(YawOf(to) - YawOf(fwd)),
+                speed = m_Carrying ? CarryWalkSpeed : WalkSpeed;
             m_ToGo = to.Length();
             if (m_ToGo <= tol)
                 return true;
             if (steer && m_ToGo > k_NearRadius)
                 Drive(
-                    Math.Abs(err) < 0.6f ? WalkSpeed : 0f,
+                    Math.Abs(err) < 0.6f ? speed : 0f,
                     0f,
                     Mathf.Clamp(err * k_YawGain, -k_MaxYawRate, k_MaxYawRate)
                 );
             else
             {
-                float v = Mathf.Clamp(m_ToGo * k_StepGain, k_MinStepSpeed, WalkSpeed) / m_ToGo;
+                float v = Mathf.Clamp(m_ToGo * k_StepGain, k_MinStepSpeed, speed) / m_ToGo;
                 Drive(v * Vector3.Dot(to, fwd), v * Vector3.Dot(to, LeftOf(fwd)), 0f);
             }
             return false;
@@ -2948,11 +3024,12 @@ namespace G1Pipe
         {
             if (m_Step == 0)
                 m_TurnYaw = yaw; // aim fixed once the turn starts, so body sway doesn't move it
-            float err = Mathf.WrapToPi(m_TurnYaw - YawOf(Heading()));
+            float err = Mathf.WrapToPi(m_TurnYaw - YawOf(Heading())),
+                cap = m_Carrying ? CarryTurnRate : k_TurnRate;
             switch (m_Step)
             {
-                case 0: // settle on the walker; no turn needed if already facing
-                    if (m_StepTime < k_Settle)
+                case 0: // settle on the walker (its command ramped to zero); no turn needed if already facing
+                    if (m_StepTime < k_Settle || m_Sent != Vector3.Zero)
                         return false;
                     if (Math.Abs(err) < TurnTolerance)
                         return true;
@@ -2966,8 +3043,8 @@ namespace G1Pipe
                         Math.Sign(err)
                             * Mathf.Clamp(
                                 Math.Abs(err) * k_YawGain,
-                                Math.Min(MinTurnRate * m_TurnTries, k_TurnRate),
-                                k_TurnRate
+                                Math.Min(MinTurnRate * m_TurnTries, cap),
+                                cap
                             )
                             * Math.Min(1f, m_StepTime / k_TurnRampIn)
                     );
@@ -2988,8 +3065,8 @@ namespace G1Pipe
                     m_StepTime = 0f;
                     ResetWatch();
                     return false;
-                case 2: // zero yaw while the rotator is still active, then hand back to the walker
-                    if (m_StepTime < k_DecelTime)
+                case 2: // zero yaw (ramped down) while the rotator is still active, then hand back to the walker
+                    if (m_StepTime < k_DecelTime || m_Sent != Vector3.Zero)
                         return false;
                     SetLocomotion(WalkerSlotId);
                     break;
@@ -3009,13 +3086,22 @@ namespace G1Pipe
             m_Active = slot;
         }
 
-        // Sends (vx, vy, yaw rate) to the active locomotion policy.
-        private void Drive(float vx, float vy, float yawRate)
-        {
-            m_Robot!.SetFloat(m_Active, k_SetVx, vx);
-            m_Robot.SetFloat(m_Active, k_SetVy, vy);
-            m_Robot.SetFloat(m_Active, k_SetYawRate, yawRate);
+        // Asks for (vx, vy, yaw rate) this frame; SendDrive sends it.
+        private void Drive(float vx, float vy, float yawRate) =>
             m_Cmd = new Vector3(vx, vy, yawRate);
+
+        // Sends this frame's walk command to the active policy, ramped at CarryAccel while carrying (straight through otherwise).
+        private void SendDrive(float ts)
+        {
+            float step = m_Carrying ? CarryAccel * ts : float.MaxValue;
+            m_Sent = new Vector3(
+                m_Sent.X + Mathf.Clamp(m_Cmd.X - m_Sent.X, -step, step),
+                m_Sent.Y + Mathf.Clamp(m_Cmd.Y - m_Sent.Y, -step, step),
+                m_Sent.Z + Mathf.Clamp(m_Cmd.Z - m_Sent.Z, -step, step)
+            );
+            m_Robot!.SetFloat(m_Active, k_SetVx, m_Sent.X);
+            m_Robot.SetFloat(m_Active, k_SetVy, m_Sent.Y);
+            m_Robot.SetFloat(m_Active, k_SetYawRate, m_Sent.Z);
         }
 
         // The only place the phase changes: resets the phase timers and the watchdog, and logs the transition.
@@ -3060,7 +3146,7 @@ namespace G1Pipe
         {
             Vector3 p = Pelvis();
             string s =
-                $"[G1] {m_Phase}: pelvis ({p.X:F2}, {p.Y:F2}, {p.Z:F2}) yaw {YawOf(Heading()) * Mathf.Rad2Deg:F0} deg | cmd vx={m_Cmd.X:F2} vy={m_Cmd.Y:F2} yaw={m_Cmd.Z:F2}";
+                $"[G1] {m_Phase}: pelvis ({p.X:F2}, {p.Y:F2}, {p.Z:F2}) yaw {YawOf(Heading()) * Mathf.Rad2Deg:F0} deg | cmd vx={m_Sent.X:F2} vy={m_Sent.Y:F2} yaw={m_Sent.Z:F2}";
             if (
                 m_Phase
                 is Phase.FaceBox
