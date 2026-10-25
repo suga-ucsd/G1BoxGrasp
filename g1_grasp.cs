@@ -32,6 +32,7 @@ namespace G1Pipe
             Holding,
             Lift,
             PullIn,
+            BackOff,
             TurnToTable,
             WalkToTable,
             FaceTable,
@@ -62,6 +63,7 @@ namespace G1Pipe
             public MujocoActuator[] Joints = new MujocoActuator[0]; // shoulder pitch, roll, yaw, elbow (IK), wrist roll, pitch, yaw (script)
             public uint[] WristLink = new uint[0]; // the links those joints turn
             public float[] WristQ = new float[0]; // wrist ctrl targets (rad)
+            public bool WristHeld; // wrists held where they were when the grip was confirmed
             public uint[] WristAdr = new uint[0]; // wrist joints' qpos addresses (measured angles for the log)
             public float PalmErr; // deg between the palm normal and the squeeze axis
             public MujocoActuator[] Hand = new MujocoActuator[0]; // thumb 1, thumb 2, index 0, middle 0 (script-owned)
@@ -131,6 +133,9 @@ namespace G1Pipe
             k_MinStepSpeed = 0.1f; // stepping speed = clamp(distance * gain, min, WalkSpeed)
         private const float k_Settle = 0.6f; // s at zero velocity before a policy swap or a reach (G9)
         private const float k_DecelTime = 0.2f; // s of zero commands to an outgoing policy while still active (G9)
+        private const float k_CarryRamp = 0.5f,
+            k_WalkCoast = 0.10f,
+            k_CarryTurnTol = 0.26f; // s every walk command ramps in over while carrying; m the body coasts on after walking; rad the turn to the table may stay off (the walk steers)
         private const float k_TurnRate = 0.7f,
             k_TurnRampIn = 0.5f; // rotator: max rad/s, ramp-in s
         private const float k_WalkProgress = 0.02f,
@@ -254,13 +259,13 @@ namespace G1Pipe
         public float WalkSpeed = 0.3f; // m/s
 
         [Group("Walk")]
-        public float CarryWalkSpeed = 0.15f; // m/s, walking speed cap while carrying the box
+        public float CarryBackDistance = 0.20f; // m the body backs away from the conveyor with the box before turning to the table
 
         [Group("Walk")]
-        public float CarryTurnRate = 0.35f; // rad/s, turning speed cap while carrying the box
+        public float CarrySmoothing = 0.2f; // s, the carry frame (pelvis pose the box is held in) is smoothed over this: gait bounce and sway never reach the arms (0 = off)
 
         [Group("Walk")]
-        public float CarryAccel = 0.3f; // m/s^2 (rad/s^2 for the yaw rate), walk command ramp while carrying, so the body never jerks the box
+        public float CarryTurnCmd = 1.0f; // rad/s walker yaw command for the turns with the box (the walker turns in place: no rotator swap)
 
         [Group("Walk")]
         public float StandDistance = 0.33f; // m, pelvis -> box centre when grasping (arm reach limit)
@@ -516,6 +521,7 @@ namespace G1Pipe
         private uint m_Active; // locomotion policy slot driving the legs + waist
         private float m_GripLift; // m the grip is raised up the box so the arms can reach it
         private float m_TurnYaw; // heading the current turn aims at (fixed when it starts)
+        private Vector3 m_BackFrom; // pelvis when backing off began
         private int m_TurnTries,
             m_WalkRetries,
             m_Repositions,
@@ -697,8 +703,7 @@ namespace G1Pipe
             m_ChuteTop; // conveyor surface normal and the centre of its top face
         private Vector3 m_Stand,
             m_Slot; // where the pelvis walks to (fixed per goal); where the box goes down
-        private Vector3 m_Cmd; // walk command asked for this frame (vx, vy, yaw rate)
-        private Vector3 m_Sent; // walk command last sent to the policy (ramped toward m_Cmd while carrying)
+        private Vector3 m_Cmd; // last walk command (vx, vy, yaw rate), for the log
         private float m_ToGo,
             m_LogTimer; // distance left to the walk goal (m); time since the last status line
 
@@ -707,6 +712,12 @@ namespace G1Pipe
             m_Lat,
             m_Fwd;
         private bool m_Carrying;
+        private Vector3 m_CarryPos,
+            m_CarryVel,
+            m_LastPelvis; // carry frame: smoothed pelvis position, its smoothed velocity, last pelvis position
+        private float m_CarryYaw,
+            m_CarryRate,
+            m_LastYaw; // carry frame: smoothed heading, its smoothed rate, last heading (rad)
         private float m_HalfW,
             m_HalfD,
             m_HalfH; // box half extents along m_Lat, m_Fwd and up
@@ -742,7 +753,10 @@ namespace G1Pipe
                 return;
             m_Dt = ts;
             if (m_PelvisId != uint.MaxValue)
+            {
                 m_Still = BodyMotion() < StillSpeed ? m_Still + ts : 0f;
+                TrackCarryFrame(ts);
+            }
             m_PhaseTime += ts;
             m_StepTime += ts;
             m_SinceBest += ts;
@@ -862,26 +876,20 @@ namespace G1Pipe
                     if (Hold(ts) && MoveTowards(ref m_Center, CarryOffset, k_CarrySpeed * ts))
                         EnterTurnToTable();
                     break;
+                case Phase.BackOff:
+                    if (Hold(ts) && StepBackOff())
+                        Advance(Phase.TurnToTable);
+                    break;
                 case Phase.TurnToTable:
-                    if (
-                        Hold(ts)
-                        && (
-                            (m_Step == 0 && Flat(m_Stand - Pelvis()).Length() < k_NearRadius)
-                            || Turn(YawOf(m_Stand - Pelvis()))
-                        )
-                    )
+                    if (Hold(ts) && WalkerTurn(YawOf(FaceOf(PlaceTarget!)), k_CarryTurnTol))
                         Advance(Phase.WalkToTable);
                     break;
                 case Phase.WalkToTable:
-                    if (!Hold(ts))
-                        break;
-                    if (WalkTo(m_Stand, ArriveTolerance, true))
+                    if (Hold(ts) && CarryWalk())
                         Advance(Phase.FaceTable);
-                    else if (Stalled(m_ToGo, k_WalkProgress, WalkTimeout))
-                        WalkStalled(Phase.TurnToTable);
                     break;
                 case Phase.FaceTable:
-                    if (Hold(ts) && Turn(YawOf(FaceOf(PlaceTarget!))))
+                    if (Hold(ts) && WalkerTurn(YawOf(FaceOf(PlaceTarget!)), TurnTolerance))
                         Advance(PlaceBox ? Phase.Place : Phase.Holding);
                     break;
                 case Phase.Place:
@@ -906,7 +914,6 @@ namespace G1Pipe
                     SendHands(Fold, false);
                     break; // Done / Failed: stand with the arms folded
             }
-            SendDrive(ts);
             if (m_Phase == Phase.Start)
                 return;
             OrientWrists(ts);
@@ -1786,7 +1793,7 @@ namespace G1Pipe
             Vector3 c = BoxCenter(m_Box);
             Log.Info(
                 $"[G1] PG t={m_PhaseTime:F2} step {m_Step} ({(m_Step == 0 ? "to the pre-grip points" : "sliding in")}) | sim {speed:F2}x real time ({wall * 1000f:F0} ms wall)"
-                    + $" | pelvis {F(Pelvis())} v {F(m_MjToHz * pv)} ({pv.Length():F3} m/s) yaw {YawOf(Heading()) * Mathf.Rad2Deg:F1} deg, ang vel {pw.Length():F3} rad/s | walk cmd {F(m_Sent)}"
+                    + $" | pelvis {F(Pelvis())} v {F(m_MjToHz * pv)} ({pv.Length():F3} m/s) yaw {YawOf(Heading()) * Mathf.Rad2Deg:F1} deg, ang vel {pw.Length():F3} rad/s | walk cmd {F(m_Cmd)}"
                     + $" | box {F(c)} v {bv.Length():F3} m/s, ang vel {bw.Length():F3} rad/s, {(c - m_PickAt).Length():F3} m from the reach start, {(c - m_BoxAt).Length():F3} m from the last re-read, belt gap {ChuteGap(m_Box):F3} m, contact {m_Mujoco.GetGeomContactForce(m_Boxes[m_Box].Geom):F1} N"
                     + $" | grip frame centre {F(m_Center)} fwd {F(m_Fwd)}, grip lift {m_GripLift:F3} m{(speed < 0.5f ? " | SIM SLOW" : "")}"
             );
@@ -1865,7 +1872,7 @@ namespace G1Pipe
                     : $"{PalmMidY() - c.Y - m_Y0:F3} m (+ = box sliding down)";
             Log.Info(
                 $"[G1] GR {m_Phase} t={m_PhaseTime:F2} | sim {speed:F2}x real time | need {RequiredForce():F1} N per palm (boost {m_Boost:F2}), lift {m_Lift:F3} m"
-                    + $" | pelvis {F(Pelvis())} {pv.Length():F3} m/s, ang vel {pw.Length():F3} rad/s, yaw {YawOf(Heading()) * Mathf.Rad2Deg:F1} deg | walk cmd {F(m_Sent)}"
+                    + $" | pelvis {F(Pelvis())} {pv.Length():F3} m/s, ang vel {pw.Length():F3} rad/s, yaw {YawOf(Heading()) * Mathf.Rad2Deg:F1} deg | walk cmd {F(m_Cmd)}"
                     + $" | box {F(c)} v {bv.Length():F3} m/s, ang vel {bw.Length():F3} rad/s, slip {slip}, hand gap {(SiteWorld(m_Arms[0].Site) - SiteWorld(m_Arms[1].Site)).Length():F3} m (palms touch at {2f * (m_HalfW + PalmOffset):F3}){(speed < 0.5f ? " | SIM SLOW" : "")}"
             );
             foreach (Arm a in m_Arms)
@@ -2073,7 +2080,7 @@ namespace G1Pipe
             );
         }
 
-        // Picks the nearest free table slot and where to stand for it, then turns toward that spot.
+        // Picks the nearest free table slot and where to stand for it, then backs off the conveyor, turns to face the table, walks onto that spot and squares up.
         private void EnterTurnToTable()
         {
             if (!FreeSlot(out m_Slot))
@@ -2087,7 +2094,7 @@ namespace G1Pipe
             Log.Info(
                 $"[G1] placing at {m_Slot}, standing at {m_Stand}, {Vector3.Dot(m_Slot - m_Stand, FaceOf(PlaceTarget!)):F2} m from the slot"
             );
-            Advance(Phase.TurnToTable);
+            Advance(Phase.BackOff);
         }
 
         // Settle, switch the grip to world coords, move the box over its spot, then lower it until the surface holds it. If the hands
@@ -2099,9 +2106,9 @@ namespace G1Pipe
             Vector3 rest = m_Slot + Vector3.Up * m_HalfH; // box centre resting on the surface
             if (m_Step == 0 && m_StepTime >= k_Settle)
             {
-                m_Center = BodyPoint(m_Center);
-                m_Lat = BodyDir(m_Lat);
-                m_Fwd = BodyDir(m_Fwd);
+                m_Center = CarryPoint(m_Center);
+                m_Lat = CarryDir(m_Lat);
+                m_Fwd = CarryDir(m_Fwd);
                 m_Carrying = false;
                 NextStep();
             }
@@ -2451,6 +2458,7 @@ namespace G1Pipe
             float slip = PalmMidY() - BoxCenter(m_Box).Y - m_Y0; // + = box sliding down between the palms
             if (slip > DropTolerance)
             {
+                m_Carrying = false; // it's out of the hands: nothing left to hold on to
                 Fail($"box slipped out of the hands ({slip:F3} m)");
                 return false;
             }
@@ -2722,9 +2730,9 @@ namespace G1Pipe
         // reaching for the box, never lower than GripHeight over the conveyor surface under it.
         private Vector3 HandTarget(Arm a)
         {
-            Vector3 c = m_Carrying ? BodyPoint(m_Center) : m_Center;
-            Vector3 lat = m_Carrying ? BodyDir(m_Lat) : m_Lat,
-                fwd = m_Carrying ? BodyDir(m_Fwd) : m_Fwd;
+            Vector3 c = m_Carrying ? CarryPoint(m_Center) : m_Center;
+            Vector3 lat = m_Carrying ? CarryDir(m_Lat) : m_Lat,
+                fwd = m_Carrying ? CarryDir(m_Fwd) : m_Fwd;
             Vector3 t =
                 c
                 + lat * (a.Side * (m_HalfW + PalmOffset + a.Gap))
@@ -2787,11 +2795,20 @@ namespace G1Pipe
         // Wrist servo: turns each hand toward its zero-pose frame on the grip axes - fingers (X) along forward, Y along the squeeze axis, so the
         // left palm (-Y) and right palm (+Y) face the box; heading axes when not gripping (and for the catch's parked hand). Closed on the measured hand frame, whatever the IK does.
         // A hand still climbing out from low down keeps its wrist still (turning there would swing the fingers into the belt); LockWrists keeps both still always.
+        // Once the grip is confirmed (until Release) the box fixes the hands' orientation, so the wrists hold the angles they had then: steering on
+        // only winds the command up to the joint limit, pinning the actuator at its torque limit with no stiffness or damping left to stop the box swinging.
         private void OrientWrists(float ts)
         {
-            bool grip = m_Phase >= Phase.Ready && m_Phase <= Phase.Release;
+            bool grip = m_Phase >= Phase.Ready && m_Phase <= Phase.Release,
+                held = m_Phase > Phase.Squeeze && m_Phase < Phase.Release;
             foreach (Arm a in m_Arms)
             {
+                if (held && !a.WristHeld && a.Joints.Length == 7)
+                    for (int i = 0; i < 3; i++)
+                        a.Joints[4 + i].Value = a.WristQ[i] = m_Mujoco!.GetJointPosition(
+                            a.WristAdr[i]
+                        );
+                a.WristHeld = held;
                 if (a.Joints.Length < 7 || a.Rising || SiteWorld(a.Site).Y < a.Cmd.Y - k_Snap)
                     continue;
                 Vector3 x = grip && !Parked(a) ? (m_Carrying ? BodyDir(m_Fwd) : m_Fwd) : Heading(),
@@ -2806,7 +2823,7 @@ namespace G1Pipe
                             + Vector3.Cross(r * s_Axes[2], z)
                         ) * 0.5f; // rotation error
                 a.PalmErr = Mathf.Acos(Mathf.Clamp(Vector3.Dot(cy, y), -1f, 1f)) * Mathf.Rad2Deg;
-                if (LockWrists)
+                if (LockWrists || held)
                     continue;
                 for (int i = 0; i < 3; i++)
                 {
@@ -2915,7 +2932,12 @@ namespace G1Pipe
                 );
             a.Capped = d.Length() > max;
             m_Robot!.SetInputVector3(a.Target, a.Capped ? t - d * (1f - max / d.Length()) : t);
-            m_Robot.SetInputVector3(a.Pole, BodyPoint(Mirror(PoleOffset, a.Side)));
+            m_Robot.SetInputVector3(
+                a.Pole,
+                m_Carrying
+                    ? CarryPoint(Mirror(PoleOffset, a.Side))
+                    : BodyPoint(Mirror(PoleOffset, a.Side))
+            );
         }
 
         // Next straight segment toward goal. Pure vertical moves go straight. Near a box (NearBox) and below m_SafeY, a long move across or a big climb first rises
@@ -2963,6 +2985,7 @@ namespace G1Pipe
                     or Phase.Holding
                     or Phase.Lift
                     or Phase.PullIn
+                    or Phase.BackOff
                     or Phase.TurnToTable
                     or Phase.WalkToTable
                     or Phase.FaceTable
@@ -2985,20 +3008,19 @@ namespace G1Pipe
         {
             Vector3 to = Flat(goal - Pelvis()),
                 fwd = Heading();
-            float err = Mathf.WrapToPi(YawOf(to) - YawOf(fwd)),
-                speed = m_Carrying ? CarryWalkSpeed : WalkSpeed;
+            float err = Mathf.WrapToPi(YawOf(to) - YawOf(fwd));
             m_ToGo = to.Length();
             if (m_ToGo <= tol)
                 return true;
             if (steer && m_ToGo > k_NearRadius)
                 Drive(
-                    Math.Abs(err) < 0.6f ? speed : 0f,
+                    Math.Abs(err) < 0.6f ? WalkSpeed : 0f,
                     0f,
                     Mathf.Clamp(err * k_YawGain, -k_MaxYawRate, k_MaxYawRate)
                 );
             else
             {
-                float v = Mathf.Clamp(m_ToGo * k_StepGain, k_MinStepSpeed, speed) / m_ToGo;
+                float v = Mathf.Clamp(m_ToGo * k_StepGain, k_MinStepSpeed, WalkSpeed) / m_ToGo;
                 Drive(v * Vector3.Dot(to, fwd), v * Vector3.Dot(to, LeftOf(fwd)), 0f);
             }
             return false;
@@ -3018,18 +3040,126 @@ namespace G1Pipe
             Advance(turn);
         }
 
+        // Carrying, first move: settle, back straight away from the conveyor (ramped in) until CarryBackDistance behind the start (the sway
+        // after stopping goes either way, ~4 cm), then coast to a stop. True when stopped.
+        private bool StepBackOff()
+        {
+            switch (m_Step)
+            {
+                case 0:
+                    if (m_StepTime < k_Settle)
+                        return false;
+                    m_BackFrom = Pelvis();
+                    break;
+                case 1:
+                    Drive(-k_BackCmd * Math.Min(1f, m_StepTime / k_CarryRamp), 0f, 0f);
+                    if (
+                        Vector3.Dot(Flat(m_BackFrom - Pelvis()), Heading()) < CarryBackDistance
+                        && m_StepTime < k_TurnMax
+                    )
+                        return false;
+                    break;
+                default:
+                    if (m_StepTime < k_ApCoast)
+                        return false;
+                    Log.Info(
+                        $"[G1] backed off {Vector3.Dot(Flat(m_BackFrom - Pelvis()), Heading()):F2} m from the conveyor (aim {CarryBackDistance:F2})"
+                    );
+                    return true;
+            }
+            NextStep();
+            return false;
+        }
+
+        // Carrying: walk straight at the stand spot - forward at k_FwdCmd (the slowest the walker steps forward at, ramped in), steering onto
+        // it - until k_WalkCoast short of it (the body coasts on), then coast to a stop. True when stopped.
+        private bool CarryWalk()
+        {
+            Vector3 to = Flat(m_Stand - Pelvis());
+            m_ToGo = to.Length();
+            if (m_Step == 0)
+            {
+                Drive(
+                    k_FwdCmd * Math.Min(1f, m_StepTime / k_CarryRamp),
+                    0f,
+                    Mathf.Clamp(
+                        Mathf.WrapToPi(YawOf(to) - YawOf(Heading())) * k_YawGain,
+                        -k_MaxYawRate,
+                        k_MaxYawRate
+                    )
+                );
+                if (Vector3.Dot(to, Heading()) > k_WalkCoast && m_StepTime < WalkTimeout)
+                    return false;
+                NextStep();
+                return false;
+            }
+            if (m_StepTime < k_ApCoast)
+                return false;
+            Log.Info($"[G1] walked to the table: {m_ToGo:F2} m off the stand spot");
+            return true;
+        }
+
+        // Turn in place on the walker with the box (the rotator's take-over lurches the body): settle; if more than tol off, yaw at CarryTurnCmd
+        // (ramped in) until k_TurnStop short (it coasts on), coast to a stop and check again (MaxTurnTries). True when facing yaw, or out of
+        // tries (it goes on from there: the box is never let go over a turn).
+        private bool WalkerTurn(float yaw, float tol)
+        {
+            if (m_Step == 0)
+                m_TurnYaw = yaw; // aim fixed once the turn starts, so body sway doesn't move it
+            float err = Mathf.WrapToPi(m_TurnYaw - YawOf(Heading()));
+            switch (m_Step)
+            {
+                case 0:
+                    if (m_StepTime < k_Settle)
+                        return false;
+                    if (Math.Abs(err) < tol)
+                        return true;
+                    if (++m_TurnTries > MaxTurnTries)
+                    {
+                        Log.Warn(
+                            $"[G1] turn still {err * Mathf.Rad2Deg:F0} deg off after {MaxTurnTries} tries -> going on from here"
+                        );
+                        return true;
+                    }
+                    Log.Info(
+                        $"[G1] turning {err * Mathf.Rad2Deg:F0} deg in place on the walker ({m_TurnTries}/{MaxTurnTries})"
+                    );
+                    break;
+                case 1:
+                    Drive(
+                        0f,
+                        0f,
+                        Math.Sign(err) * CarryTurnCmd * Math.Min(1f, m_StepTime / k_CarryRamp)
+                    );
+                    if (
+                        Math.Abs(err) > k_TurnStop
+                        && !Stalled(Math.Abs(err), k_TurnProgress, PhaseTimeout)
+                    )
+                        return false;
+                    break;
+                default:
+                    if (m_StepTime < k_ApCoast)
+                        return false;
+                    m_Step = 0; // coasted to a stop: check again
+                    m_StepTime = 0f;
+                    ResetWatch();
+                    return false;
+            }
+            NextStep();
+            return false;
+        }
+
         // Turn in place with the rotator to the heading given when the turn starts: settle, swap in, ramped P-turn (at least MinTurnRate,
         // doubled on a retry after a stall), stop, swap back, settle (G9). True when done; a turn still stalled after MaxTurnTries fails.
         private bool Turn(float yaw)
         {
             if (m_Step == 0)
                 m_TurnYaw = yaw; // aim fixed once the turn starts, so body sway doesn't move it
-            float err = Mathf.WrapToPi(m_TurnYaw - YawOf(Heading())),
-                cap = m_Carrying ? CarryTurnRate : k_TurnRate;
+            float err = Mathf.WrapToPi(m_TurnYaw - YawOf(Heading()));
             switch (m_Step)
             {
-                case 0: // settle on the walker (its command ramped to zero); no turn needed if already facing
-                    if (m_StepTime < k_Settle || m_Sent != Vector3.Zero)
+                case 0: // settle on the walker; no turn needed if already facing
+                    if (m_StepTime < k_Settle)
                         return false;
                     if (Math.Abs(err) < TurnTolerance)
                         return true;
@@ -3043,8 +3173,8 @@ namespace G1Pipe
                         Math.Sign(err)
                             * Mathf.Clamp(
                                 Math.Abs(err) * k_YawGain,
-                                Math.Min(MinTurnRate * m_TurnTries, cap),
-                                cap
+                                Math.Min(MinTurnRate * m_TurnTries, k_TurnRate),
+                                k_TurnRate
                             )
                             * Math.Min(1f, m_StepTime / k_TurnRampIn)
                     );
@@ -3065,8 +3195,8 @@ namespace G1Pipe
                     m_StepTime = 0f;
                     ResetWatch();
                     return false;
-                case 2: // zero yaw (ramped down) while the rotator is still active, then hand back to the walker
-                    if (m_StepTime < k_DecelTime || m_Sent != Vector3.Zero)
+                case 2: // zero yaw while the rotator is still active, then hand back to the walker
+                    if (m_StepTime < k_DecelTime)
                         return false;
                     SetLocomotion(WalkerSlotId);
                     break;
@@ -3086,22 +3216,13 @@ namespace G1Pipe
             m_Active = slot;
         }
 
-        // Asks for (vx, vy, yaw rate) this frame; SendDrive sends it.
-        private void Drive(float vx, float vy, float yawRate) =>
-            m_Cmd = new Vector3(vx, vy, yawRate);
-
-        // Sends this frame's walk command to the active policy, ramped at CarryAccel while carrying (straight through otherwise).
-        private void SendDrive(float ts)
+        // Sends (vx, vy, yaw rate) to the active locomotion policy.
+        private void Drive(float vx, float vy, float yawRate)
         {
-            float step = m_Carrying ? CarryAccel * ts : float.MaxValue;
-            m_Sent = new Vector3(
-                m_Sent.X + Mathf.Clamp(m_Cmd.X - m_Sent.X, -step, step),
-                m_Sent.Y + Mathf.Clamp(m_Cmd.Y - m_Sent.Y, -step, step),
-                m_Sent.Z + Mathf.Clamp(m_Cmd.Z - m_Sent.Z, -step, step)
-            );
-            m_Robot!.SetFloat(m_Active, k_SetVx, m_Sent.X);
-            m_Robot.SetFloat(m_Active, k_SetVy, m_Sent.Y);
-            m_Robot.SetFloat(m_Active, k_SetYawRate, m_Sent.Z);
+            m_Robot!.SetFloat(m_Active, k_SetVx, vx);
+            m_Robot.SetFloat(m_Active, k_SetVy, vy);
+            m_Robot.SetFloat(m_Active, k_SetYawRate, yawRate);
+            m_Cmd = new Vector3(vx, vy, yawRate);
         }
 
         // The only place the phase changes: resets the phase timers and the watchdog, and logs the transition.
@@ -3112,6 +3233,7 @@ namespace G1Pipe
             m_Phase = next;
             m_Step = 0;
             m_PhaseTime = m_StepTime = m_ToGo = 0f;
+            m_TurnTries = 0;
             ResetWatch();
         }
 
@@ -3146,7 +3268,7 @@ namespace G1Pipe
         {
             Vector3 p = Pelvis();
             string s =
-                $"[G1] {m_Phase}: pelvis ({p.X:F2}, {p.Y:F2}, {p.Z:F2}) yaw {YawOf(Heading()) * Mathf.Rad2Deg:F0} deg | cmd vx={m_Sent.X:F2} vy={m_Sent.Y:F2} yaw={m_Sent.Z:F2}";
+                $"[G1] {m_Phase}: pelvis ({p.X:F2}, {p.Y:F2}, {p.Z:F2}) yaw {YawOf(Heading()) * Mathf.Rad2Deg:F0} deg | cmd vx={m_Cmd.X:F2} vy={m_Cmd.Y:F2} yaw={m_Cmd.Z:F2}";
             if (
                 m_Phase
                 is Phase.FaceBox
@@ -3195,10 +3317,16 @@ namespace G1Pipe
         }
 
         // Logs why, counts the attempt against the box (skip = give up on it now), folds the arms (letting go of any box) and recovers;
-        // retry = go back for the next box afterwards, else stop for good.
+        // retry = go back for the next box afterwards, else stop for good. A box being carried is never let go: the body stands holding it.
         private void Fail(string reason, bool retry = true, bool skip = false)
         {
             Log.Error($"[G1] failed in {m_Phase}: {reason}");
+            if (m_Carrying)
+            {
+                Log.Warn("[G1] still carrying the box -> standing still holding it");
+                Advance(Phase.Holding);
+                return;
+            }
             if (retry && m_Box >= 0 && (skip || ++m_Fails[m_Box] >= MaxBoxAttempts))
             {
                 m_Fails[m_Box] = MaxBoxAttempts;
@@ -3320,6 +3448,42 @@ namespace G1Pipe
             Heading() * b.X + Vector3.Up * b.Y + LeftOf(Heading()) * b.Z;
 
         private Vector3 BodyPoint(Vector3 b) => Pelvis() + BodyDir(b);
+
+        // The same in the carry frame (TrackCarryFrame); equal to the pelvis frame when not carrying.
+        private Vector3 CarryDir(Vector3 b)
+        {
+            Vector3 h = new Vector3((float)Math.Cos(m_CarryYaw), 0f, -(float)Math.Sin(m_CarryYaw));
+            return h * b.X + Vector3.Up * b.Y + LeftOf(h) * b.Z;
+        }
+
+        private Vector3 CarryPoint(Vector3 b) => m_CarryPos + CarryDir(b);
+
+        // Carry frame: the pelvis position and heading low-passed over CarrySmoothing with their own smoothed velocity fed forward, so a steady
+        // walk or turn isn't lagged while gait bounce and sway never reach the arms (the box swinging on them would push back into the walker).
+        private void TrackCarryFrame(float ts)
+        {
+            Vector3 p = Pelvis();
+            float yaw = YawOf(Heading());
+            if (!m_Carrying || CarrySmoothing <= 0f)
+            {
+                m_CarryPos = p;
+                m_CarryYaw = yaw;
+                m_CarryVel = Vector3.Zero;
+                m_CarryRate = 0f;
+            }
+            else
+            {
+                float k = 1f - (float)Math.Exp(-ts / CarrySmoothing);
+                m_CarryVel += ((p - m_LastPelvis) * (1f / ts) - m_CarryVel) * k;
+                m_CarryRate += (Mathf.WrapToPi(yaw - m_LastYaw) / ts - m_CarryRate) * k;
+                m_CarryPos += (p + m_CarryVel * CarrySmoothing - m_CarryPos) * k;
+                m_CarryYaw = Mathf.WrapToPi(
+                    m_CarryYaw + Mathf.WrapToPi(yaw + m_CarryRate * CarrySmoothing - m_CarryYaw) * k
+                );
+            }
+            m_LastPelvis = p;
+            m_LastYaw = yaw;
+        }
 
         private Vector3 ToBody(Vector3 v) =>
             new Vector3(Vector3.Dot(v, Heading()), v.Y, Vector3.Dot(v, LeftOf(Heading())));
