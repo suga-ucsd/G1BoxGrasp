@@ -48,11 +48,11 @@
 <body>
 
 <h1>G1 Box Grasp: conveyor catch and two-hand grasp</h1>
-<div class="meta">Work report for the LuckyEngine G1 controller <code>g1_grasp.cs</code> (namespace <code>G1Pipe</code>, class <code>G1BoxGrasp</code>) &middot; covers 16&ndash;19 October 2026 &middot; repo <code>~/projects/robot_code/G1BoxGrasp</code>, engine project <code>~/Documents/LuckyEngine/Projects/g1_sort</code></div>
+<div class="meta">Work report for the LuckyEngine G1 controller <code>g1_grasp.cs</code> (namespace <code>G1Pipe</code>, class <code>G1BoxGrasp</code>) &middot; covers 16&ndash;27 October 2026 &middot; repo <code>~/projects/robot_code/G1BoxGrasp</code>, engine project <code>~/Documents/LuckyEngine/Projects/g1_sort</code></div>
 
 <div class="box">
 <b class="t">Summary</b>
-The controller started this period as a working pick-and-place pipeline for a box <em>resting</em> on the conveyor: walk, line up, two-hand grasp, lift, turn, walk, place. Most of its constants were moved into the inspector, and a long series of logged runs explained its failure modes: a far IK target causes a singularity, and a box narrower than about 0.15 m puts the hands near the body's centre line. The conveyor was then turned into a gravity slide (tilted belt, low friction), and a <strong>catch</strong> phase was built. The left (downhill) hand predicts where the sliding box will be, waits in front of its path, slides its palm in, and gives with the box so it stops instead of bouncing. The catch now works reliably (commits <code>81c4fea</code>, <code>8863226</code>). It hands straight over to the existing grasp: the left hand stays pinned on the box and only the right hand comes in (commit <code>9a291ce</code>). The right hand now arrives and both palms squeeze. The box still escapes, because the effective friction between the hands and the box is about the box's own 0.01, not the hand's. A high-priority friction class has just been added to the robot model's hand geoms to fix that. It is not yet tested.
+The controller started this period as a pick-and-place pipeline for a box <em>resting</em> on the conveyor. The conveyor was turned into a gravity slide and a <strong>catch</strong> was built: the left hand predicts the sliding box, waits in its path and gives with it (sections&nbsp;5&ndash;8). The grip then took most of the work. A high-priority hand friction class and <code>noslip_iterations=20</code> stopped the box creeping out of the hands, and the carry became walker-only (back off, turn in place, walk straight), so by 25 October the whole pipeline worked for the 0.3&nbsp;m, 1&nbsp;kg box (commit <code>0ec78d3</code>). Making it work for other sizes and weights (sections&nbsp;13&ndash;17) needed a palm-led squeeze with capped palm and finger forces, so the 5&nbsp;N&middot;m wrists are never twisted open. It also needed a <strong>waist lock</strong>: the walker's waist yaw was swinging the torso &plusmn;25&deg; at about 2&nbsp;Hz in every turn and flinging the box. On top of those came slower carry speeds, a box raised clear of the table, a centring push that puts any caught box on the body's centre line, and elbows eased outward. On 27 October boxes of 0.2, 0.3 (1&nbsp;kg and 2&nbsp;kg) and 0.4&nbsp;m were caught, carried and placed. The latest 0.1&nbsp;m run reached the table but slipped out as Place began. The remaining weak spots are slow placing (the turns at the table take two tries), a heavy (2&nbsp;kg) box sinking 4.4&nbsp;cm of the 5&nbsp;cm allowed, and the narrow box's grip. Section&nbsp;18 is the plan for the next size and weight tests.
 </div>
 
 <div class="toc">
@@ -67,7 +67,14 @@ The controller started this period as a working pick-and-place pipeline for a bo
 <div>9. Friction and the slipping box</div>
 <div>10. Engine facts and gotchas learned</div>
 <div>11. Scene layout rules</div>
-<div>12. Commits, current state and next steps</div>
+<div>12. Commits and state on 19 October</div>
+<div>13. 19&ndash;25 October: a carry that works</div>
+<div>14. The grip as it works now</div>
+<div>15. The turning oscillation and the waist lock</div>
+<div>16. Carry speeds and placing</div>
+<div>17. Box sizes and weights: results</div>
+<div>18. Test plan: more sizes and weights</div>
+<div>19. Commits, state and known issues</div>
 <div>Appendix A. Inspector fields added</div>
 <div>Appendix B. Key formulas</div>
 </div>
@@ -321,7 +328,8 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <li><b>Belt twist.</b> Zero the belt's Rotation Y and Z (0.0099, −0.0016) so the box slides straight.</li>
 </ul>
 
-<h2>12. Commits, current state and next steps</h2>
+<h2>12. Commits and state on 19 October</h2>
+<p class="k">This section records the state at the end of the first period. Sections&nbsp;13&ndash;19 cover what came after.</p>
 <table>
 <thead><tr><th>Commit</th><th>Date</th><th>Message</th><th>Contents</th></tr></thead>
 <tbody>
@@ -336,7 +344,7 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <li>in <code>g1_grasp.cs</code> (29 lines added, 21 removed): the live palm-on-face check with finger back-off, and the right palm levelled and kept fully on its face;</li>
 <li>in the robot model: the hand friction class (outside the repo).</li>
 </ul>
-<h3>Next steps</h3>
+<h3>Next steps (as planned on 19 October)</h3>
 <ol>
 <li><b>Test the hand friction class.</b> Expect no more squirting, and much less pivoting.</li>
 <li><b>Palm-contact flicker.</b> While the fingers are nearly straight (curl under about 0.1&nbsp;rad), count palm plus finger force as "flat on the face". Still require palm-only contact before the fingers curl further.</li>
@@ -351,6 +359,142 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <li><b>Message fixes.</b> The "box sits 0.25&nbsp;m too low" warning really means "too far ahead". A palm that never reaches its spot should report that, instead of "never stopped" after 15&nbsp;s.</li>
 <li><b>Repeat loop.</b> A pool of pre-placed boxes, or an end stop and recycle, for <em>RepeatLoop</em> with the catch.</li>
 </ol>
+
+<h2 class="pb">13. 19&ndash;25 October: a carry that works</h2>
+<table>
+<thead><tr><th style="width:22%">Problem</th><th style="width:40%">What the logs showed</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td>Box squirted out of the squeeze</td><td>The hands gripped with about the box's own friction (0.01).</td><td>The hand friction class from section&nbsp;9 (<code>priority=2</code>, &mu;&nbsp;1.5, torsion 0.05, condim&nbsp;4) worked: the box no longer squirts, and the whole pipeline ran with the box at a favourable position (commit <code>21de146</code>).</td></tr>
+<tr><td>Slow creep in the hands</td><td>Over a long carry the box crept down the palms by millimetres per second, even with both palms on.</td><td><code>noslip_iterations="20"</code> in the robot MJCF's <code>&lt;option&gt;</code>. MuJoCo's soft contacts let a squeezed box creep; the noslip solver removes that. Commit <code>12d4f2e</code> "Slippage problem fixed".</td></tr>
+<tr><td>Jerky walk to the table</td><td>The rotator's take-over lurched the body, and an IK-led turn dragged the box.</td><td>Walker-only carry: <b>BackOff</b> straight back from the conveyor, <b>turn in place</b> on the walker (the rotator lurches the body when it takes over), a straight <b>walk</b>, then <b>FaceTable</b>. A failed turn never drops the box; the robot goes on from where it is.</td></tr>
+<tr><td>Shoulders and elbows oscillating while turning</td><td>The hand targets followed every step of the gait.</td><td>The hand targets ride a smoothed carry frame (<em>CarrySmoothing</em>, 0.2&nbsp;s low-pass of the pelvis pose and heading). The wrists hold their angles from grip confirm onward.</td></tr>
+</tbody>
+</table>
+<p>With these, the 0.3&nbsp;m, 1&nbsp;kg box went through catch, grip, lift, back-off, turn, walk and place reliably, and the user committed it as <code>0ec78d3</code>. The next goal was set then: <em>different box sizes and weights</em>.</p>
+
+<h2>14. The grip as it works now</h2>
+<figure>
+  <img src="grip_dependency.svg" alt="Grip dependency graph" style="width:100%">
+  <figcaption><b>Figure 4.</b> Dependency graph of the grip (<code>grip_dependency.svg</code>), from the measured quantities through the controller state to the targets the IK and actuators get. NEW marks what changed since <code>0ec78d3</code>.</figcaption>
+</figure>
+<p>Every piece below came from a log. The constraint throughout: the wrist actuators stay at the MJCF's 5&nbsp;N&middot;m (pitch and yaw), because raising them would widen the sim-to-real gap.</p>
+<ul>
+<li><b>Palm-led squeeze.</b> The gap of each hand is an admittance on the <em>palm's</em> force only. While held, a palm that comes off closes straight back in, and the hand never opens unless the palm presses past <em>MaxPalmForce</em> (40&nbsp;N). While holding, each palm aims at <em>HeldPalmForce</em> (20&nbsp;N), or more if the box's weight needs it. Palm-on has a 0.3&nbsp;s hold-over, so carry jostle doesn't make it flicker.</li>
+<li><b>Capped fingers.</b> Index and middle curl in while the palm is on, but never press past <em>MaxFingerForce</em> (25&nbsp;N): over it they ease back, and under 0.8&times; it they curl on. They press 16&ndash;22&nbsp;cm out from the wrist, twice the palm's lever. Uncapped, they reached 60&ndash;100&nbsp;N and dragged the wrist yaws 50&ndash;57&deg; off their commands (right &minus;11&deg; &rarr; &minus;68&deg;, left 5&deg; &rarr; 53&deg;), which lifted the palms off. With both caps, the wrists stay within about 4&deg; of their latched angles.</li>
+<li><b>Why not a full finger wrap.</b> With <em>FrontInset</em> 0.04 the knuckles sit 4&nbsp;cm behind the box's front face. Curling then presses the first finger segment into the side face instead of hooking the front corner, so a curl strong enough to wrap is exactly what twists the wrists open. The thumbs stay straight (0); every thumb curl tried pushed the box forward.</li>
+<li><b>Centring push (restored on 27 October).</b> After the catch, the holding hand pushes the box up the belt, at 5&nbsp;cm/s and at most 0.15&nbsp;m, until its centre is on the body's centre line. Both hands then reach in the same distance whatever the box width. The 0.1&nbsp;m box needed this: caught 8&nbsp;cm left of centre, its right palm had to reach 3&nbsp;cm across the centre line, and the right upper arm hit the torso 0.20&nbsp;m short of its target.</li>
+<li><b>Elbows out.</b> From PreGrasp to Release the elbow hint eases 0.15&nbsp;m further out (<em>GripPoleOut</em>, at 0.15&nbsp;m/s), so the IK closes the hands by turning the shoulders rather than swinging the upper arms into the torso. Switching it out all at once had jolted the box before, hence the easing.</li>
+</ul>
+
+<h2>15. The turning oscillation and the waist lock</h2>
+<p>With the grip holding, the 0.4&nbsp;m box still slid out in every turn. New logging of the torso and waist, the shoulder and elbow angles and the grasp sites in body coordinates showed where the swing came from:</p>
+<table>
+<thead><tr><th class="n">Turn time</th><th class="n">Pelvis yaw rate</th><th class="n">Torso yaw rate</th><th class="n">Waist yaw</th><th class="n">Left shoulder pitch</th><th class="n">Left hand fwd of pelvis</th></tr></thead>
+<tbody>
+<tr><td class="n">0.02 s</td><td class="n">+0.11</td><td class="n">+1.16 rad/s</td><td class="n">+8&deg;</td><td class="n">10&deg;</td><td class="n">0.26 m</td></tr>
+<tr><td class="n">0.26 s</td><td class="n">&minus;0.11</td><td class="n">&minus;1.56</td><td class="n">&minus;12&deg;</td><td class="n">17&deg;</td><td class="n">0.30</td></tr>
+<tr><td class="n">0.74 s</td><td class="n">&minus;0.26</td><td class="n">&minus;2.67</td><td class="n">&minus;8&deg;</td><td class="n">13&deg;</td><td class="n">0.30</td></tr>
+<tr><td class="n">2.42 s</td><td class="n">+0.96</td><td class="n">+2.75</td><td class="n">&minus;27&deg;</td><td class="n">34&deg;</td><td class="n">0.28</td></tr>
+<tr><td class="n">3.14 s</td><td class="n">+1.23</td><td class="n">+4.91</td><td class="n">0&deg;</td><td class="n">24&deg;</td><td class="n">0.23</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>The torso, not the pelvis, oscillated.</b> It twisted on the waist yaw joint 10&ndash;20&times; faster than the pelvis turned, &plusmn;25&deg; at about 2&nbsp;Hz. It started at the end of the back-off, before the turn.</li>
+<li><b>The arms followed the twist.</b> The hands swung &plusmn;4&nbsp;cm fore-and-aft in opposite directions, and the shoulders swung in antiphase as the IK pulled the hands back to targets that barely moved (about 1&nbsp;cm). Pulling the hands back reacted on the torso and kept the oscillation going.</li>
+<li><b>Fix: <em>LockWaist</em>.</b> From grip confirm until Place, the walker drives the legs only (<code>SetDrivenJoints</code> without the three waist joints). The script holds waist yaw, roll and pitch at their angles at confirm, with up to 88 / 50 / 50&nbsp;N&middot;m. Afterwards the torso yaw rate matched the pelvis everywhere, the box's spin stayed at 0.1&ndash;0.3&nbsp;rad/s, and the 0.4&nbsp;m box reached the table for the first time.</li>
+<li><b>Side effect:</b> with the waist locked, a 1.5&nbsp;rad/s turn command stalls, so the carry turns now use 2.0.</li>
+</ul>
+<p>Two more carry rules came out of the same logs. Before every carry turn and before the walk, the walker stays at zero until the box spins under 0.2&nbsp;rad/s (at most 2&nbsp;s). A turn's command eases in over <em>CarryTurnRamp</em>, eases down over the last 20&deg;, and ramps out over 0.5&nbsp;s.</p>
+
+<h2>16. Carry speeds and placing</h2>
+<ul>
+<li><b>Speeds.</b> Going faster with the waist locked (back 0.6, turn 2.5&nbsp;rad/s, walk 1.0&nbsp;m/s) backfired. The back-off overshot to 0.50&nbsp;m against an aim of 0.20, the turns overshot by 15&deg;, and the robot ended 0.62&nbsp;m from its stand spot. The settings that work: <em>CarryBackSpeed</em> 0.4, <em>CarryTurnCmd</em> 2.0, <em>CarryWalkSpeed</em> 0.7. The stops allow for the coast: the back-off stops early by speed &times; 0.4&nbsp;s (but covers at least half its distance), and the walk stops early in proportion to the square of its speed.</li>
+<li><b>Table clearance.</b> The carried box sagged until its bottom was level with the table top (0.495 vs 0.494&nbsp;m) and hit the edge, bouncing the robot 0.31&nbsp;m back. Now, during the turn, walk and FaceTable, the carry target rises at 0.1&nbsp;m/s while the measured box bottom is less than 5&nbsp;cm over the table top, up to 0.10&nbsp;m above <em>CarryOffset</em>.</li>
+<li><b>Reach for placing.</b> From 0.45&nbsp;m away the arms ended fully stretched (shoulder pitch &minus;42&deg; to &minus;65&deg;) with the 0.4&nbsp;m box still 0.11&ndash;0.14&nbsp;m above its spot. The 0.4&nbsp;m box's wider hands reach less far forward, and a locked waist can't lean. Now the robot stands 0.33&nbsp;m from the slot (<em>PlaceStandDistance</em>), and the waist goes back to the walker for Place so the torso can lean into the reach.</li>
+<li><b>Slot choice.</b> The slot is chosen nearest the point the robot turns at after backing off, not nearest where it stands at the conveyor. Before this, a far slot made the walk curve back into the conveyor.</li>
+<li><b>Placing is slow.</b> FaceTable takes 5.5&ndash;9.6&nbsp;s, because its turns usually need two tries ending 6&ndash;14&deg; off. Place then lowers at 3&nbsp;cm/s for 2&ndash;3.5&nbsp;s. A whole run takes about 38&ndash;48&nbsp;s, and the table end accounts for 8&ndash;12&nbsp;s of it.</li>
+</ul>
+
+<h2>17. Box sizes and weights: results</h2>
+<p>Box mass is read from the logged squeeze: req&nbsp;=&nbsp;2&middot;m&middot;g&nbsp;/&nbsp;(2&middot;1), so m&nbsp;=&nbsp;req&nbsp;/&nbsp;9.81. All the boxes are 0.15&nbsp;m deep and about 0.15&ndash;0.17&nbsp;m high. All runs are 27 October.</p>
+<table>
+<thead><tr><th>Time</th><th>Width</th><th class="n">Mass</th><th>Code</th><th>Result</th><th class="n">Max sink in hands</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>17:55</td><td>0.4 m</td><td class="n">1.35 kg</td><td><code>e03fcde</code></td><td>placed, 1.2 cm above the spot</td><td class="n">2.6 cm</td><td>Turns took two tries; the walk ended 0.17 m off.</td></tr>
+<tr><td>17:58</td><td>0.3 m</td><td class="n">1.0 kg</td><td><code>e03fcde</code></td><td>placed, 1.8 cm above</td><td class="n">1.3 cm</td><td>Total about 38 s.</td></tr>
+<tr><td>17:59</td><td>0.2 m</td><td class="n">0.67 kg</td><td><code>e03fcde</code></td><td>placed, 2.0 cm above</td><td class="n">1.0 cm</td><td>Caught 8 cm off centre. The left palm was at full squeeze depth with 2.5 N; the fingers carried it.</td></tr>
+<tr><td>18:00</td><td>0.1 m</td><td class="n">&mdash;</td><td><code>e03fcde</code></td><td><b>failed in PreGrasp</b></td><td class="n">&mdash;</td><td>The right hand stopped 0.20 m short: its upper arm hit the torso reaching across the centre line. Led to the centring push and elbows out.</td></tr>
+<tr><td>18:01</td><td>0.3 m</td><td class="n">2.0 kg</td><td><code>e03fcde</code></td><td>placed, 0.5 cm above</td><td class="n"><b>4.4 cm</b></td><td>The palms were on throughout (20&ndash;70 N). Sinking built in the turn (+1.5 cm) and the Place (+1.7 cm), close to the 5 cm drop limit.</td></tr>
+<tr><td>18:33</td><td>0.1 m</td><td class="n">0.67 kg</td><td>centring + elbows out</td><td><b>slipped out at the start of Place</b> (6.0 cm)</td><td class="n">&mdash;</td><td>Pushed 0.146 m, which left it 5.7 cm off centre at the 0.15 m cap. The grip confirmed with the left palm at 0 N (left fingers 25 N) and the right palm at 11 N. It was carried to the table and slipped 0.8 s after the waist was handed back.</td></tr>
+</tbody>
+</table>
+
+<h2>18. Test plan: more sizes and weights</h2>
+<div class="box"><b class="t">Goal</b>Map the envelope of box width, depth, height and mass that the pipeline handles end to end, find where and why each limit fails, and keep the working cases working as the code changes.</div>
+<h3>18.1 Method</h3>
+<ul>
+<li><b>One setting, one run.</b> The simulation is deterministic: the same code and settings give identical runs. Repeats are only worth it with a deliberate change: the box's start 2&nbsp;cm up or down the belt, or the robot's start yaw &plusmn;3&deg;. Three perturbed runs per cell are enough to show whether a pass is robust.</li>
+<li><b>Baseline.</b> 0.3&nbsp;m wide, 0.15&nbsp;m deep, 0.15&nbsp;m high, 1&nbsp;kg, with the inspector values of commit <code>e03fcde</code> plus the centring push. Every sweep changes one factor from this baseline. Then come the corners.</li>
+<li><b>Per-run summary.</b> A small log summariser (to be written, e.g. <code>tools/runsummary.py</code>) prints one line per run from the <code>[G1]</code> lines:
+  <ul>
+  <li>phase reached and outcome;</li>
+  <li>catch impact force and give;</li>
+  <li>centring push and the offset left;</li>
+  <li>palm and finger force per hand at grip confirm, and time to confirm;</li>
+  <li>the largest box sink and the phase it happened in;</li>
+  <li>the largest wrist deviation from its latched angle;</li>
+  <li>peak box spin in turns;</li>
+  <li>back-off distance, turn tries and final heading error, walk error;</li>
+  <li>release height and distance from the slot;</li>
+  <li>time per phase.</li>
+  </ul></li>
+<li><b>Pass criteria.</b> Placed with the release under 2.5&nbsp;cm above the spot and within 3&nbsp;cm of the slot. The box sinks less than 2.5&nbsp;cm (half the drop limit). No wrist moves more than 15&deg; from its latched angle. The whole run takes under 60&nbsp;s.</li>
+</ul>
+<h3>18.2 Sweeps</h3>
+<table>
+<thead><tr><th style="width:15%">Sweep</th><th style="width:28%">Values</th><th style="width:27%">What to watch</th><th>Likely limit and the fix ready for it</th></tr></thead>
+<tbody>
+<tr><td>Width (1 kg)</td><td>0.08, 0.10, 0.12, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45 m</td><td>Centring push (cap 0.15 m), grip points near the centre line, right-hand reach, palm vs finger share</td><td><b>Narrow:</b> the push hits its 0.15 m cap and the palms barely press. Fixes: a higher cap, or move <em>CatchPalmSide</em> in by half the box width so less push is needed. <b>Wide:</b> arm span and reach at the table, and slots 0.25 m apart can't fit 0.4 m boxes (raise <em>PlaceSpacing</em> to the width plus 5 cm).</td></tr>
+<tr><td>Mass (0.3 m)</td><td>0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0 kg</td><td>Sink per phase, palm force against the 40 N cap, wrist deviation, catch impact</td><td>req = m&middot;g at factor 2 reaches the cap (40/1.25 = 32 N) at about 3.3 kg; 2 kg already sinks 4.4 cm. Fixes: <em>GripSafetyFactor</em> 3; keep the waist locked until the box is lowered; lower more slowly; for heavier boxes, revisit <em>MaxPalmForce</em> against the 5 N&middot;m wrist budget.</td></tr>
+<tr><td>Depth (0.3 m, 1 kg)</td><td>0.10, 0.15, 0.20, 0.25 m</td><td>Palm centre against the box's centre of mass (the box pitching), fingertips past the front face</td><td>A deep box hangs its centre of mass behind the palms and pitches; a shallow one puts the palms past its back. Fix: set the grip's fore-aft position from the depth (palm centre over the centre of mass).</td></tr>
+<tr><td>Height (0.3 m, 1 kg)</td><td>0.10, 0.15, 0.20, 0.25 m</td><td>Grip height, clearance over the table, the box tipping in the catch</td><td>A short box leaves little face under the palm (<em>BeltClearance</em>). A tall one tips on impact and needs more raise over the table (cap 0.10 m).</td></tr>
+<tr><td>Corners</td><td>width 0.1 / 0.4 &times; mass 0.5 / 2.0 kg</td><td>Everything above</td><td>Narrow-and-heavy is the hardest case: a small palm patch and a large weight.</td></tr>
+<tr><td>Arrival speed</td><td>Box start 0, +0.1, +0.2 m further up the belt</td><td>Catch impact, give and the box spinning on the palm</td><td>A higher impact may knock a heavy box off the stopper hand; <em>CatchGive</em> or a longer give.</td></tr>
+</tbody>
+</table>
+<h3>18.3 Order</h3>
+<ol>
+<li>Write the log summariser and re-run the baseline to record the reference numbers.</li>
+<li>Fix the two open failures first:
+  <ul>
+  <li>the 0.1&nbsp;m box slipping at the start of Place: hand the waist back only after the box is lowered, or ramp it back;</li>
+  <li>the 2&nbsp;kg sinking: try <em>GripSafetyFactor</em> 3.</li>
+  </ul>
+  Re-run both.</li>
+<li>Width sweep, then mass sweep, then depth and height, then the corners. Stop a sweep at its first two consecutive failures and analyse them before going on.</li>
+<li>After each code change, re-run the regression set: 0.1, 0.2, 0.3, 0.4&nbsp;m at 1&nbsp;kg, and 0.3&nbsp;m at 2&nbsp;kg.</li>
+<li>Placing speed: once the sweeps pass, make FaceTable get there in one try (a lower command near the end, or a heading correction during the walk) and speed up the lowering. The goal is a whole run under 40&nbsp;s.</li>
+</ol>
+
+<h2>19. Commits, state and known issues</h2>
+<table>
+<thead><tr><th>Commit</th><th>Date</th><th>Message</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>21de146</code></td><td>19 Oct 22:33</td><td>Whole pipeline works with the box at a favourable position; next: robustness</td><td>Hand friction class in effect, palm-led squeeze, full carry and place.</td></tr>
+<tr><td><code>12d4f2e</code></td><td>25 Oct 13:21</td><td>Slippage problem fixed</td><td><code>noslip_iterations="20"</code> (robot MJCF) and the carry changes.</td></tr>
+<tr><td><code>0ec78d3</code></td><td>25 Oct 13:54</td><td>Pipeline works really well; next: different box sizes and weights</td><td>Walker-only back-off, turn and walk; smoothed carry frame; wrists held after confirm.</td></tr>
+<tr><td><code>e03fcde</code></td><td>27 Oct 17:58</td><td>0.4 m box works: waist lock, palm/finger force caps, slower carry</td><td>Sections 14&ndash;16, plus FreeSlot from the turning point and arm, site and waist logging.</td></tr>
+<tr><td>(this commit)</td><td>27 Oct</td><td>Pipeline works for 0.1&ndash;0.4 m boxes; placing is a bit slow</td><td>Centring push to the body's centre line, <em>GripPoleOut</em>, this report and the new grip graph.</td></tr>
+</tbody>
+</table>
+<p><b>Known issues.</b></p>
+<ul>
+<li>Placing is slow: FaceTable needs two turn tries.</li>
+<li>The 2&nbsp;kg box sinks close to the drop limit.</li>
+<li>The 0.1&nbsp;m box's grip rests mostly on fingers (the left palm at 0&nbsp;N), and the latest run slipped as Place began.</li>
+<li>The carry turns overshoot by about 15&deg;.</li>
+<li>The controller is 3,671 lines with 96 inspector fields. The engine copy still differs only in <em>ArmReach</em>.</li>
+</ul>
 
 <h2 class="pb">Appendix A. Inspector fields added</h2>
 <table>
@@ -382,6 +526,24 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tr><td>Tolerances</td><td>SlipTolerance / DropTolerance / LostDistance</td><td class="n">0.01 / 0.05 / 0.25 m</td><td>Slip before boosting the squeeze, slip that counts as a drop, how far the box may move before it counts as gone.</td></tr>
 </tbody>
 </table>
+<h3>Fields added 19&ndash;27 October</h3>
+<table>
+<thead><tr><th style="width:13%">Group</th><th style="width:22%">Field</th><th class="n" style="width:9%">Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Catch</td><td>CatchPalmSide</td><td class="n">0.17 m</td><td>How far out from the pelvis centre line the stopper palm stops the box, whatever its size.</td></tr>
+<tr><td>Arms</td><td>HeldPalmForce</td><td class="n">20 N</td><td>How hard each palm presses while holding (more if the weight needs it, never past MaxPalmForce).</td></tr>
+<tr><td>Arms</td><td>MaxPalmForce</td><td class="n">40 N</td><td>Most a palm presses: past it the squeeze twists the hand about the 5 N&middot;m wrist yaw.</td></tr>
+<tr><td>Arms</td><td>MaxFingerForce</td><td class="n">25 N</td><td>Most the index and middle of a hand press; over it they ease back.</td></tr>
+<tr><td>Arms</td><td>GripPoleOut</td><td class="n">0.15 m</td><td>How far the elbow hint eases further out from the reach to the release.</td></tr>
+<tr><td>Arms</td><td>LockWaist</td><td class="n">true</td><td>From grip confirm to Place, the walker drives the legs only and the waist holds its angles.</td></tr>
+<tr><td>Arms</td><td>LockWrists</td><td class="n">false</td><td>Wrist servo off: the wrists hold where they are (a test switch).</td></tr>
+<tr><td>Walk</td><td>CarryBackDistance / CarryBackSpeed</td><td class="n">0.20 m / 0.4 m/s</td><td>The back-off from the conveyor with the box.</td></tr>
+<tr><td>Walk</td><td>CarryTurnCmd / CarryTurnRamp</td><td class="n">2.0 rad/s / 0.5 s</td><td>Walker yaw command for the carry turns, and its ease-in.</td></tr>
+<tr><td>Walk</td><td>CarryWalkSpeed</td><td class="n">0.7 m/s</td><td>Forward command walking the box to the table.</td></tr>
+<tr><td>Walk</td><td>CarrySmoothing</td><td class="n">0.2 s</td><td>Low-pass of the carry frame the box is held in.</td></tr>
+<tr><td>Place</td><td>PlaceStandDistance</td><td class="n">0.33 m</td><td>Pelvis to slot when placing.</td></tr>
+</tbody>
+</table>
 <p class="k">The scene's saved values differed in places, for example MinSide 0.08, MaxSqueezeDepth 0.05, GripComfort 95, ThumbOpenDeg 30, ApproachGap 0.02, BeltClearance 0.02, MaxBoxAttempts 5, WalkToBox false.</p>
 
 <h2>Appendix B. Key formulas</h2>
@@ -397,6 +559,9 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tr><td>Give braking</td><td>deceleration = v<sub>palm</sub>² / (2 &middot; CatchGive)</td></tr>
 <tr><td>Stopper tracking step</td><td>move = min(dist &middot; (1 − e<sup>−dt/0.1&nbsp;s</sup>), CatchHandSpeed &middot; dt); in the give, move = dist</td></tr>
 <tr><td>Holder offset (HoldHere)</td><td>d = Cmd − HandTarget; offset = (d&middot;lat, d&middot;fwd, d<sub>y</sub>); target = HandTarget + offset in the current grip frame</td></tr>
+<tr><td>Squeeze while holding (per palm)</td><td>max(req, min(HeldPalmForce, MaxPalmForce) / 1.25), with req = min(GripSafetyFactor&middot;m&middot;g/(2&middot;BoxFriction)&middot;boost, MaxPalmForce/1.25); the gap aims the palm at 1.25&times; that</td></tr>
+<tr><td>Twist on a wrist from the squeeze</td><td>&tau; &asymp; F<sub>palm</sub>&middot;0.08&ndash;0.11 m + F<sub>fingers</sub>&middot;0.16&ndash;0.22 m, against 5 N&middot;m (pitch and yaw)</td></tr>
+<tr><td>Carry stop distances</td><td>back-off stops at max(d &minus; v&middot;0.4 s, d/2); walk stops 0.10 m &middot; (v / 0.6)&sup2; short</td></tr>
 <tr><td>Twist resisted by torsional friction</td><td>&tau; = &mu;<sub>torsion</sub> &middot; N per contact, against the box's weight &times; its offset from the grip line</td></tr>
 </tbody>
 </table>

@@ -1,167 +1,224 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="940" viewBox="0 0 1300 940" font-family="Helvetica, Arial, sans-serif">
-<defs><marker id="ah" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#475569"/></marker>
-<marker id="ahr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#be123c"/></marker>
-<style>.t{font-size:12.5px;font-weight:700} .b{font-size:10.5px;fill:#1f2937} .h{font-size:12px;font-weight:700;fill:#64748b;letter-spacing:1px} .l{font-size:10.5px;font-style:italic}</style></defs>
-<rect width="1300" height="940" fill="#ffffff"/>
-<text x="20" y="30" font-size="17" font-weight="700" fill="#0f172a">How the grip works: dependency graph of g1_grasp.cs (PreGrasp → Squeeze → Hold)</text>
-<text x="120.0" y="56" class="h" text-anchor="middle">MEASURED (MuJoCo)</text>
-<text x="380.0" y="56" class="h" text-anchor="middle">DERIVED</text>
-<text x="679.0" y="56" class="h" text-anchor="middle">CONTROLLER STATE</text>
-<text x="975.0" y="56" class="h" text-anchor="middle">TARGETS</text>
-<text x="1210.0" y="56" class="h" text-anchor="middle">ROBOT</text>
-<rect x="20" y="70" width="200" height="56" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="1000" viewBox="0 0 1360 1000" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="ah" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#475569"/></marker><marker id="ahr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#be123c"/></marker><style>.t{font-size:12.5px;font-weight:700} .b{font-size:10.5px;fill:#1f2937;white-space:pre} .h{font-size:12px;font-weight:700;fill:#64748b;letter-spacing:1px} .l{font-size:10px;font-style:italic;fill:#475569} .n{font-size:9px;font-weight:700;fill:#be123c}</style></defs>
+<rect width="1360" height="1000" fill="#ffffff"/>
+<text x="20" y="28" font-size="17" font-weight="700" fill="#0f172a">How the grip works: dependency graph of g1_grasp.cs (catch → PreGrasp → Squeeze → Hold → carry → Place), 0.1–0.4 m boxes</text>
+<text x="125.0" y="50" class="h" text-anchor="middle">MEASURED (MuJoCo)</text>
+<text x="388.0" y="50" class="h" text-anchor="middle">DERIVED</text>
+<text x="686.0" y="50" class="h" text-anchor="middle">CONTROLLER STATE</text>
+<text x="988.0" y="50" class="h" text-anchor="middle">TARGETS</text>
+<text x="1245.0" y="50" class="h" text-anchor="middle">ROBOT</text>
+<text x="20" y="786" class="h">OUTCOMES AND PHASE RULES</text>
+<path d="M230.0,90.0 C248.0,90.0 248.0,102.0 266.0,102.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M230.0,170.0 C248.0,170.0 248.0,238.0 266.0,238.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M230.0,257.0 C248.0,257.0 248.0,392.0 266.0,392.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M230.0,357.0 C248.0,357.0 248.0,596.0 266.0,596.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M230.0,450.0 C248.0,450.0 248.0,507.0 266.0,507.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M508.0,111.0 C684.0,111.0 684.0,108.0 860.0,108.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M508.0,248.0 C526.0,248.0 526.0,108.0 544.0,108.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M508.0,401.0 C526.0,401.0 526.0,90.0 544.0,90.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M508.0,401.0 C526.0,401.0 526.0,242.0 544.0,242.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M508.0,401.0 C526.0,401.0 526.0,310.0 544.0,310.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M508.0,597.0 C526.0,597.0 526.0,427.0 544.0,427.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M546.0,427.0 C528.0,427.0 528.0,248.0 510.0,248.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M826.0,132.0 C843.0,132.0 843.0,108.0 860.0,108.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M826.0,331.0 C843.0,331.0 843.0,445.0 860.0,445.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M560,276 L560,288" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M826.0,693.0 C843.0,693.0 843.0,515.0 860.0,515.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M1114.0,146.0 C1131.0,146.0 1131.0,96.0 1148.0,96.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M1114.0,515.0 C1131.0,515.0 1131.0,102.0 1148.0,102.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M1114.0,445.0 C1131.0,445.0 1131.0,270.0 1148.0,270.0" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M876,320 L876,224" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M876,236 L876,224" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M1164,138 L1164,168" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M1164,250 L1164,226" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M826,504 L842,504 L842,580 L1132,580 L1132,343 L1148,343" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M826,602 L1140,602 L1140,423 L1148,423" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M230,640 L532,640 L532,602 L544,602" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M230,648 L524,648 L524,504 L544,504" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M508,507 L516,507 L516,730 L852,730 L852,515 L860,515" stroke="#475569" stroke-width="1.3" fill="none" marker-end="url(#ah)"/>
+<path d="M1245.0,224 L1245.0,760 L28,760 L28,660" stroke="#be123c" stroke-width="1.5" stroke-dasharray="6 4" fill="none" marker-end="url(#ahr)"/>
+<text x="680" y="755" class="l" text-anchor="middle" fill="#be123c">feedback: the arms move ⇒ new contacts, site positions and box motion</text>
+<rect x="20" y="70" width="210" height="40" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
 <text x="30" y="88" class="t" fill="#2563eb">Box pose + size</text>
-<text x="30" y="104" class="b">GetGeomPoseMj, box half extents</text>
-<rect x="20" y="180" width="200" height="56" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-<text x="30" y="198" class="t" fill="#2563eb">Box mass m</text>
-<text x="30" y="214" class="b">GetBodyMass (0.98 kg for 0.30 m)</text>
-<rect x="20" y="270" width="200" height="62" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-<text x="30" y="288" class="t" fill="#2563eb">Hand-geom contact forces</text>
-<text x="30" y="304" class="b">GetGeomContactForce,</text>
-<text x="30" y="318" class="b">9 collision geoms per hand</text>
-<rect x="20" y="556" width="200" height="62" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-<text x="30" y="574" class="t" fill="#2563eb">Grasp-site positions</text>
-<text x="30" y="590" class="b">SiteWorld(a.Site): the point</text>
-<text x="30" y="604" class="b">LimbIK drives, 1 per hand</text>
-<rect x="260" y="66" width="240" height="84" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>
-<text x="270" y="84" class="t" fill="#0f766e">Grip frame (SetGripFrame)</text>
-<text x="270" y="100" class="b">m_Center: box centre</text>
-<text x="270" y="114" class="b">m_Fwd: box axis nearest the heading</text>
-<text x="270" y="128" class="b">m_Lat: squeeze axis (left of m_Fwd)</text>
-<text x="270" y="142" class="b">m_HalfW / m_HalfD / m_HalfH</text>
-<rect x="260" y="172" width="240" height="72" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>
-<text x="270" y="190" class="t" fill="#0f766e">req = RequiredForce()</text>
-<text x="270" y="206" class="b">GripSafetyFactor · m · g</text>
-<text x="270" y="220" class="b">   / (2 · BoxFriction) · m_Boost</text>
-<text x="270" y="234" class="b">need = req · GripForceLimit / 100</text>
-<rect x="260" y="262" width="240" height="86" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>
-<text x="270" y="280" class="t" fill="#0f766e">Force / PalmForce / ThumbForce</text>
-<text x="270" y="296" class="b">per hand, tared: raw − Base (Tare)</text>
-<text x="270" y="310" class="b">PalmForce: wrist_yaw (palm) geoms</text>
-<text x="270" y="324" class="b">Force: palm + finger geoms</text>
-<text x="270" y="338" class="b">ThumbForce: thumb geoms</text>
-<rect x="260" y="556" width="240" height="72" rx="8" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/>
-<text x="270" y="574" class="t" fill="#0f766e">slip</text>
-<text x="270" y="590" class="b">PalmMidY − box centre Y − m_Y0</text>
-<text x="270" y="604" class="b">PalmMidY = mean grasp-site height</text>
-<text x="270" y="618" class="b">+ = box sliding down the palms</text>
-<rect x="545" y="158" width="268" height="124" rx="8" fill="#ffedd5" stroke="#c2410c" stroke-width="1.5"/>
-<text x="555" y="176" class="t" fill="#c2410c">Gap (per hand)</text>
-<text x="555" y="192" class="b">air between palm and side face, − = inside</text>
-<text x="555" y="206" class="b">nothing touching: closes 0.02 m/s</text>
-<text x="555" y="220" class="b">else Gap −= clamp(k_DepthGain ·</text>
-<text x="555" y="234" class="b">   (k_SqueezeMargin · req − F), ±0.02) · dt</text>
-<text x="555" y="248" class="b">F = PalmForce  (held: Force)</text>
-<text x="555" y="262" class="b">limits: −MaxSqueezeDepth … ApproachGap + k_Widen</text>
-<text x="555" y="276" class="b">held: HeldGap − k_HoldDepth … HeldGap</text>
-<rect x="545" y="300" width="268" height="58" rx="8" fill="#ffedd5" stroke="#c2410c" stroke-width="1.5"/>
-<text x="555" y="318" class="t" fill="#c2410c">PalmOn (hysteresis)</text>
-<text x="555" y="334" class="b">on:  PalmForce ≥ TouchForce</text>
-<text x="555" y="348" class="b">off: PalmForce &lt; ½ · TouchForce</text>
-<rect x="545" y="376" width="268" height="72" rx="8" fill="#ffedd5" stroke="#c2410c" stroke-width="1.5"/>
-<text x="555" y="394" class="t" fill="#c2410c">Curl (index + middle)</text>
-<text x="555" y="410" class="b">PalmOn: + k_CurlRate /s, ≤ k_MaxCurl</text>
-<text x="555" y="424" class="b">off: − 2 · k_CurlRate /s</text>
-<text x="555" y="438" class="b">held: never eases back</text>
-<rect x="545" y="466" width="268" height="72" rx="8" fill="#ffedd5" stroke="#c2410c" stroke-width="1.5"/>
-<text x="555" y="484" class="t" fill="#c2410c">Thumb, Tip</text>
-<text x="555" y="500" class="b">gripping: ThumbGripDeg, ThumbTipDeg</text>
-<text x="555" y="514" class="b">else: ThumbOpenDeg (flared back)</text>
-<text x="555" y="528" class="b">narrow box: only the holder&#x27;s swings</text>
-<rect x="545" y="556" width="268" height="64" rx="8" fill="#ffedd5" stroke="#c2410c" stroke-width="1.5"/>
-<text x="555" y="574" class="t" fill="#c2410c">m_Boost</text>
-<text x="555" y="590" class="b">+1 per s while slip &gt; SlipTolerance</text>
-<text x="555" y="604" class="b">capped at 2  (req up to ×2)</text>
-<rect x="840" y="66" width="270" height="72" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-<text x="850" y="84" class="t" fill="#6d28d9">Path terms</text>
-<text x="850" y="100" class="b">m_Slide: −k_PreFront → 0 (slide in)</text>
-<text x="850" y="114" class="b">m_Lift: 0 → LiftHeight (Lift)</text>
-<text x="850" y="128" class="b">m_HoldOff: holder pinned (HoldHere)</text>
-<rect x="840" y="158" width="270" height="128" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-<text x="850" y="176" class="t" fill="#6d28d9">HandTarget(a): grasp-site goal</text>
-<text x="850" y="192" class="b">  m_Center</text>
-<text x="850" y="206" class="b">+ m_Lat · Side · (m_HalfW + PalmOffset + Gap)</text>
-<text x="850" y="220" class="b">+ m_Fwd · (FrontInset − m_HalfD + m_Slide)</text>
-<text x="850" y="234" class="b">+ Up · (GripHeight − m_HalfH + m_Lift)</text>
-<text x="850" y="248" class="b">+ m_HoldOff   (holder only)</text>
-<text x="850" y="262" class="b">Side = +1 left hand, −1 right hand</text>
-<rect x="840" y="306" width="270" height="72" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-<text x="850" y="324" class="t" fill="#6d28d9">GripHeight(a)</text>
-<text x="850" y="340" class="b">BeltClearance + PalmBelow(a)</text>
-<text x="850" y="354" class="b">+ (1 + Side) · k_ThumbStagger</text>
-<text x="850" y="368" class="b">+ m_GripLift (reach-plan raise)</text>
-<rect x="840" y="466" width="270" height="58" rx="8" fill="#ede9fe" stroke="#6d28d9" stroke-width="1.5"/>
-<text x="850" y="484" class="t" fill="#6d28d9">Finger + thumb targets</text>
-<text x="850" y="500" class="b">a.Hand[0..3].Value from</text>
-<text x="850" y="514" class="b">Thumb, Tip, Curl (PoseHands)</text>
-<rect x="1135" y="170" width="150" height="58" rx="8" fill="#e5e7eb" stroke="#374151" stroke-width="1.5"/>
-<text x="1145" y="188" class="t" fill="#374151">SendHands → LimbIK</text>
-<text x="1145" y="204" class="b">IK target = HandTarget</text>
-<rect x="1135" y="250" width="150" height="72" rx="8" fill="#e5e7eb" stroke="#374151" stroke-width="1.5"/>
-<text x="1145" y="268" class="t" fill="#374151">Arm joints</text>
-<text x="1145" y="284" class="b">position-controlled:</text>
-<text x="1145" y="298" class="b">goal inside the box</text>
-<text x="1145" y="312" class="b">⇒ the palm presses</text>
-<rect x="1135" y="344" width="150" height="58" rx="8" fill="#e5e7eb" stroke="#374151" stroke-width="1.5"/>
-<text x="1145" y="362" class="t" fill="#374151">Hand on the box</text>
-<text x="1145" y="378" class="b">contact ⇒ forces,</text>
-<text x="1145" y="392" class="b">sites move</text>
-<rect x="1135" y="466" width="150" height="58" rx="8" fill="#e5e7eb" stroke="#374151" stroke-width="1.5"/>
-<text x="1145" y="484" class="t" fill="#374151">Hand actuators</text>
-<text x="1145" y="500" class="b">fingers + thumb</text>
-<rect x="260" y="712" width="300" height="72" rx="8" fill="#dcfce7" stroke="#15803d" stroke-width="1.5"/>
-<text x="270" y="730" class="t" fill="#15803d">Grip confirmed → Lift</text>
-<text x="270" y="746" class="b">every hand: PalmOn ∧ Force ≥ need</text>
-<text x="270" y="760" class="b">for k_GripConfirm (m_StepTime)</text>
-<text x="270" y="774" class="b">then HeldGap ← Gap, m_Y0 ← current slip</text>
-<rect x="580" y="712" width="300" height="72" rx="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
-<text x="590" y="730" class="t" fill="#b45309">Grip stuck → RetrySqueeze</text>
-<text x="590" y="746" class="b">a hand not holding with Gap at −MaxSqueezeDepth</text>
-<text x="590" y="760" class="b">for StallTime (or PhaseTimeout):</text>
-<text x="590" y="774" class="b">reopen, re-read the box; fail after MaxSqueezeTries</text>
-<rect x="900" y="712" width="300" height="72" rx="8" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.5"/>
-<text x="910" y="730" class="t" fill="#b91c1c">Box dropping → Fail</text>
-<text x="910" y="746" class="b">slip &gt; DropTolerance (Hold, every carry phase)</text>
-<text x="910" y="760" class="b">slip &gt; SlipTolerance only raises m_Boost</text>
-<path d="M220,98 L260,98" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M220,208 L260,208" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M220,300 L260,300" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M220,588 L260,588" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M500,110 L831,110 L831,200 L840,200" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<text x="600" y="104" class="l" fill="#475569">grip frame</text>
-<path d="M500,138 L520,138 L520,500 L545,500" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<text x="470" y="494" class="l" fill="#475569">m_HalfW</text>
-<path d="M500,214 L545,214" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<text x="512" y="208" class="l" fill="#475569">req</text>
-<path d="M500,280 L545,270" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<text x="516" y="268" class="l" fill="#475569">F</text>
-<path d="M500,330 L545,330" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M679,358 L679,376" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M813,410 L824,410 L824,480 L840,480" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M813,512 L840,512" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M813,222 L840,222" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<text x="806" y="216" class="l" fill="#475569">Gap</text>
-<path d="M975,138 L975,158" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M975,306 L975,286" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M1110,198 L1135,198" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M1210,228 L1210,250" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M1210,322 L1210,344" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M1110,494 L1135,494" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M1210,466 L1210,402" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M500,588 L545,588" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M545,604 L533,604 L533,236 L500,236" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<path d="M1285,373 L1292,373 L1292,666 L10,666 L10,300 L20,300" fill="none" stroke="#be123c" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#ahr)"/>
-<text x="420" y="660" class="l" fill="#be123c">feedback: the arms move ⇒ new contacts and site positions</text>
-<path d="M10,588 L20,588" fill="none" stroke="#be123c" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#ahr)"/>
-<path d="M260,340 L245,340 L245,700 L330,700 L330,712" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<text x="250" y="696" class="l" fill="#475569">Force, PalmOn, need</text>
-<path d="M818,282 L818,712" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<text x="790" y="700" class="l" fill="#475569">Gap</text>
-<path d="M380,628 L380,646 L1050,646 L1050,712" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#ah)"/>
-<text x="700" y="640" class="l" fill="#475569">slip</text>
-<rect x="20" y="806" width="1260" height="86" rx="8" fill="#f8fafc" stroke="#cbd5e1"/>
-<text x="32" y="828" class="b">Scene values: GripSafetyFactor 2 · BoxFriction 1 · GripForceLimit 100 % · TouchForce 2 N · ApproachGap 0.02 m · MaxSqueezeDepth 0.05 m · PalmOffset 0.02 m · FrontInset 0.051 m · BeltClearance 0.02 m</text>
-<text x="32" y="845" class="b">StallTime 3 s · MaxSqueezeTries 3 · PhaseTimeout 15 s · SlipTolerance 0.01 m · DropTolerance 0.05 m · LiftHeight 0.10 m · ThumbOpenDeg 30 · ThumbGripDeg 0 · ThumbTipDeg 0</text>
-<text x="32" y="862" class="b">Constants: k_DepthGain 0.002 m/(N·s) · k_SqueezeMargin 1.25 · k_MaxSqueezeRate 0.02 m/s · k_Widen 0.05 m · k_CurlRate 0.5 rad/s · k_MaxCurl 0.8 rad · k_GripConfirm 0.5 s · k_HoldDepth 0.01 m</text>
-<text x="32" y="879" class="b">k_PreFront 0.10 m · k_PreWiden 0.03 m · k_SlideSpeed 0.10 m/s · k_ThumbStagger 0.018 m · k_ThumbReach 0.095 m · k_ThumbClear 0.03 m (narrow = m_HalfW &lt; 0.125 m)</text>
+<text x="30" y="104" class="b" xml:space="preserve">GetGeomPoseMj, box half extents</text>
+<rect x="20" y="150" width="210" height="40" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="30" y="168" class="t" fill="#2563eb">Box mass m</text>
+<text x="30" y="184" class="b" xml:space="preserve">GetBodyMass (1.35 kg for 0.4 m)</text>
+<rect x="20" y="230" width="210" height="54" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="30" y="248" class="t" fill="#2563eb">Hand-geom contact forces</text>
+<text x="30" y="264" class="b" xml:space="preserve">GetGeomContactForce, 9 geoms</text>
+<text x="30" y="278" class="b" xml:space="preserve">per hand, tared at the slide-in</text>
+<rect x="20" y="330" width="210" height="54" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="30" y="348" class="t" fill="#2563eb">Grasp-site positions</text>
+<text x="30" y="364" class="b" xml:space="preserve">SiteWorld(a.Site): the point</text>
+<text x="30" y="378" class="b" xml:space="preserve">the LimbIK drives, 1 per hand</text>
+<rect x="20" y="430" width="210" height="40" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="30" y="448" class="t" fill="#2563eb">Pelvis pose</text>
+<text x="30" y="464" class="b" xml:space="preserve">position + heading (yaw only)</text>
+<rect x="20" y="510" width="210" height="40" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="30" y="528" class="t" fill="#2563eb">Box spin</text>
+<text x="222" y="526" class="n" text-anchor="end">NEW</text>
+<text x="30" y="544" class="b" xml:space="preserve">box angular velocity</text>
+<rect x="20" y="590" width="210" height="68" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+<text x="30" y="608" class="t" fill="#2563eb">Joint angles</text>
+<text x="30" y="624" class="b" xml:space="preserve">wrist, shoulder, elbow, waist</text>
+<text x="30" y="638" class="b" xml:space="preserve">(logged; wrists and waist</text>
+<text x="30" y="652" class="b" xml:space="preserve">latch from them)</text>
+<rect x="268" y="70" width="240" height="82" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="278" y="88" class="t" fill="#7c3aed">Grip frame (SetGripFrame)</text>
+<text x="278" y="104" class="b" xml:space="preserve">m_Center: box centre</text>
+<text x="278" y="118" class="b" xml:space="preserve">m_Fwd: box axis nearest the heading</text>
+<text x="278" y="132" class="b" xml:space="preserve">m_Lat: squeeze axis (left of m_Fwd)</text>
+<text x="278" y="146" class="b" xml:space="preserve">m_HalfW / m_HalfD / m_HalfH</text>
+<rect x="268" y="200" width="240" height="96" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="278" y="218" class="t" fill="#7c3aed">req = RequiredForce()</text>
+<text x="500" y="216" class="n" text-anchor="end">NEW</text>
+<text x="278" y="234" class="b" xml:space="preserve">min( GripSafetyFactor · m · g</text>
+<text x="278" y="248" class="b" xml:space="preserve">      / (2 · BoxFriction) · m_Boost,</text>
+<text x="278" y="262" class="b" xml:space="preserve">     MaxPalmForce / k_SqueezeMargin )</text>
+<text x="278" y="276" class="b" xml:space="preserve">need = req · GripForceLimit / 100</text>
+<text x="278" y="290" class="b" xml:space="preserve">held: max(req, HeldPalmForce / 1.25)</text>
+<rect x="268" y="360" width="240" height="82" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="278" y="378" class="t" fill="#7c3aed">Force / PalmForce / ThumbForce</text>
+<text x="278" y="394" class="b" xml:space="preserve">per hand, tared: raw − Base</text>
+<text x="278" y="408" class="b" xml:space="preserve">PalmForce: wrist_yaw (palm) geoms</text>
+<text x="278" y="422" class="b" xml:space="preserve">fingers = Force − PalmForce</text>
+<text x="278" y="436" class="b" xml:space="preserve">ThumbForce: thumb geoms</text>
+<rect x="268" y="480" width="240" height="54" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="278" y="498" class="t" fill="#7c3aed">Carry frame (TrackCarryFrame)</text>
+<text x="278" y="514" class="b" xml:space="preserve">pelvis pos + heading low-passed</text>
+<text x="278" y="528" class="b" xml:space="preserve">over CarrySmoothing: no gait bounce</text>
+<rect x="268" y="570" width="240" height="54" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+<text x="278" y="588" class="t" fill="#7c3aed">slip</text>
+<text x="278" y="604" class="b" xml:space="preserve">PalmMidY − box centre Y − m_Y0</text>
+<text x="278" y="618" class="b" xml:space="preserve">+ = box sliding down the palms</text>
+<rect x="546" y="70" width="280" height="124" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="556" y="88" class="t" fill="#d97706">Gap (per hand)</text>
+<text x="818" y="86" class="n" text-anchor="end">NEW</text>
+<text x="556" y="104" class="b" xml:space="preserve">air between palm and face, − = inside</text>
+<text x="556" y="118" class="b" xml:space="preserve">palm off: close at 0.02 m/s</text>
+<text x="556" y="132" class="b" xml:space="preserve">else Gap −= clamp(k_DepthGain ·</text>
+<text x="556" y="146" class="b" xml:space="preserve">  (1.25 · target − PalmForce), ±0.02)·dt</text>
+<text x="556" y="160" class="b" xml:space="preserve">held: never opens unless</text>
+<text x="556" y="174" class="b" xml:space="preserve">  PalmForce ≥ MaxPalmForce</text>
+<text x="556" y="188" class="b" xml:space="preserve">limits −MaxSqueezeDepth … 0 (held)</text>
+<rect x="546" y="222" width="280" height="54" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="556" y="240" class="t" fill="#d97706">PalmOn (hysteresis)</text>
+<text x="818" y="238" class="n" text-anchor="end">NEW</text>
+<text x="556" y="256" class="b" xml:space="preserve">on:  PalmForce ≥ TouchForce</text>
+<text x="556" y="270" class="b" xml:space="preserve">off: &lt; ½ TouchForce for k_PalmHold 0.3 s</text>
+<rect x="546" y="290" width="280" height="82" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="556" y="308" class="t" fill="#d97706">Curl (index + middle)</text>
+<text x="818" y="306" class="n" text-anchor="end">NEW</text>
+<text x="556" y="324" class="b" xml:space="preserve">fingers &gt; MaxFingerForce: ease back</text>
+<text x="556" y="338" class="b" xml:space="preserve">PalmOn ∧ fingers &lt; 0.8 · MaxFingerForce:</text>
+<text x="556" y="352" class="b" xml:space="preserve">  curl in at k_CurlRate, ≤ k_MaxCurl</text>
+<text x="556" y="366" class="b" xml:space="preserve">held: keep; else ease back 2×</text>
+<rect x="546" y="400" width="280" height="54" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="556" y="418" class="t" fill="#d97706">m_Boost</text>
+<text x="556" y="434" class="b" xml:space="preserve">+1 per s while slip &gt; SlipTolerance,</text>
+<text x="556" y="448" class="b" xml:space="preserve">capped at 2 (req up to ×2)</text>
+<rect x="546" y="470" width="280" height="68" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="556" y="488" class="t" fill="#d97706">Wrists (OrientWrists)</text>
+<text x="556" y="504" class="b" xml:space="preserve">until the grip is confirmed: servo the</text>
+<text x="556" y="518" class="b" xml:space="preserve">palms square to the grip axes</text>
+<text x="556" y="532" class="b" xml:space="preserve">after (to Release): hold the latched angles</text>
+<rect x="546" y="568" width="280" height="68" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="556" y="586" class="t" fill="#d97706">Waist (HoldWaist, LockWaist)</text>
+<text x="818" y="584" class="n" text-anchor="end">NEW</text>
+<text x="556" y="602" class="b" xml:space="preserve">grip confirmed … Place: walker drives</text>
+<text x="556" y="616" class="b" xml:space="preserve">the legs only, waist held at its angles</text>
+<text x="556" y="630" class="b" xml:space="preserve">Place: back to the walker (lean to reach)</text>
+<rect x="546" y="666" width="280" height="54" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+<text x="556" y="684" class="t" fill="#d97706">Elbow pole m_PoleOut</text>
+<text x="818" y="682" class="n" text-anchor="end">NEW</text>
+<text x="556" y="700" class="b" xml:space="preserve">eases to GripPoleOut (0.15 m) at</text>
+<text x="556" y="714" class="b" xml:space="preserve">0.15 m/s from PreGrasp to Release</text>
+<rect x="862" y="70" width="252" height="152" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="872" y="88" class="t" fill="#16a34a">HandTarget(a): grasp-site goal</text>
+<text x="872" y="104" class="b" xml:space="preserve">  m_Center</text>
+<text x="872" y="118" class="b" xml:space="preserve">+ m_Lat · Side · (m_HalfW + PalmOffset</text>
+<text x="872" y="132" class="b" xml:space="preserve">                 + Gap)</text>
+<text x="872" y="146" class="b" xml:space="preserve">+ m_Fwd · (FrontInset − m_HalfD</text>
+<text x="872" y="160" class="b" xml:space="preserve">           + m_Slide)</text>
+<text x="872" y="174" class="b" xml:space="preserve">+ Up · (GripHeight − m_HalfH + m_Lift)</text>
+<text x="872" y="188" class="b" xml:space="preserve">+ m_HoldOff   [holder only]</text>
+<text x="872" y="202" class="b" xml:space="preserve">carrying: m_Center and axes in the</text>
+<text x="872" y="216" class="b" xml:space="preserve">carry frame (TrackCarryFrame)</text>
+<rect x="862" y="236" width="252" height="68" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="872" y="254" class="t" fill="#16a34a">GripHeight(a)</text>
+<text x="872" y="270" class="b" xml:space="preserve">BeltClearance + PalmBelow(a)</text>
+<text x="872" y="284" class="b" xml:space="preserve">+ (1 + Side) · k_ThumbStagger</text>
+<text x="872" y="298" class="b" xml:space="preserve">+ m_GripLift</text>
+<rect x="862" y="320" width="252" height="68" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="872" y="338" class="t" fill="#16a34a">Raise over the table</text>
+<text x="1106" y="336" class="n" text-anchor="end">NEW</text>
+<text x="872" y="354" class="b" xml:space="preserve">carry: m_Center.Y += 0.1 m/s while the</text>
+<text x="872" y="368" class="b" xml:space="preserve">box bottom &lt; table top + 5 cm</text>
+<text x="872" y="382" class="b" xml:space="preserve">(at most CarryOffset.Y + 0.10)</text>
+<rect x="862" y="418" width="252" height="54" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="872" y="436" class="t" fill="#16a34a">Finger + thumb targets</text>
+<text x="872" y="452" class="b" xml:space="preserve">a.Hand[..].Value from Curl,</text>
+<text x="872" y="466" class="b" xml:space="preserve">Thumb (thumbs straight: 0)</text>
+<rect x="862" y="488" width="252" height="54" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+<text x="872" y="506" class="t" fill="#16a34a">Elbow pole target</text>
+<text x="1106" y="504" class="n" text-anchor="end">NEW</text>
+<text x="872" y="522" class="b" xml:space="preserve">PoleOffset + (0, 0, m_PoleOut),</text>
+<text x="872" y="536" class="b" xml:space="preserve">mirrored, body / carry frame</text>
+<rect x="1150" y="70" width="190" height="68" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+<text x="1160" y="88" class="t" fill="#475569">Arm joints (LimbIK)</text>
+<text x="1160" y="104" class="b" xml:space="preserve">IK target = HandTarget</text>
+<text x="1160" y="118" class="b" xml:space="preserve">goal inside the box</text>
+<text x="1160" y="132" class="b" xml:space="preserve">⇒ the palm presses</text>
+<rect x="1150" y="170" width="190" height="54" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+<text x="1160" y="188" class="t" fill="#475569">Hand on the box</text>
+<text x="1160" y="204" class="b" xml:space="preserve">contact ⇒ forces,</text>
+<text x="1160" y="218" class="b" xml:space="preserve">sites move</text>
+<rect x="1150" y="250" width="190" height="40" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+<text x="1160" y="268" class="t" fill="#475569">Hand actuators</text>
+<text x="1160" y="284" class="b" xml:space="preserve">index, middle, thumb</text>
+<rect x="1150" y="316" width="190" height="54" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+<text x="1160" y="334" class="t" fill="#475569">Wrist actuators</text>
+<text x="1160" y="350" class="b" xml:space="preserve">pitch / yaw ≤ 5 Nm,</text>
+<text x="1160" y="364" class="b" xml:space="preserve">roll ≤ 25 Nm</text>
+<rect x="1150" y="396" width="190" height="54" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+<text x="1160" y="414" class="t" fill="#475569">Waist actuators</text>
+<text x="1332" y="412" class="n" text-anchor="end">NEW</text>
+<text x="1160" y="430" class="b" xml:space="preserve">yaw ≤ 88 Nm,</text>
+<text x="1160" y="444" class="b" xml:space="preserve">roll / pitch ≤ 50 Nm</text>
+<rect x="1150" y="476" width="190" height="40" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+<text x="1160" y="494" class="t" fill="#475569">Walker (legs)</text>
+<text x="1160" y="510" class="b" xml:space="preserve">vx, vy, yaw-rate commands</text>
+<rect x="20" y="800" width="318" height="68" rx="8" fill="#ffe4e6" stroke="#be123c" stroke-width="1.5"/>
+<text x="30" y="818" class="t" fill="#be123c">Grip confirmed → Lift</text>
+<text x="30" y="834" class="b" xml:space="preserve">every hand: PalmOn ∧ Force ≥ need</text>
+<text x="30" y="848" class="b" xml:space="preserve">for k_GripConfirm (0.5 s); then m_Y0,</text>
+<text x="30" y="862" class="b" xml:space="preserve">wrists latch, waist locks</text>
+<rect x="354" y="800" width="318" height="82" rx="8" fill="#ffe4e6" stroke="#be123c" stroke-width="1.5"/>
+<text x="364" y="818" class="t" fill="#be123c">Grip stuck → RetrySqueeze</text>
+<text x="364" y="834" class="b" xml:space="preserve">a hand not holding with Gap at</text>
+<text x="364" y="848" class="b" xml:space="preserve">−MaxSqueezeDepth for StallTime:</text>
+<text x="364" y="862" class="b" xml:space="preserve">reopen, re-read the box, HoldHere;</text>
+<text x="364" y="876" class="b" xml:space="preserve">fail after MaxSqueezeTries</text>
+<rect x="688" y="800" width="318" height="68" rx="8" fill="#ffe4e6" stroke="#be123c" stroke-width="1.5"/>
+<text x="698" y="818" class="t" fill="#be123c">Box swinging → wait</text>
+<text x="998" y="816" class="n" text-anchor="end">NEW</text>
+<text x="698" y="834" class="b" xml:space="preserve">before every carry turn and the walk:</text>
+<text x="698" y="848" class="b" xml:space="preserve">walker at 0 until box spin &lt; 0.2 rad/s</text>
+<text x="698" y="862" class="b" xml:space="preserve">(at most 2 s)</text>
+<rect x="1022" y="800" width="318" height="82" rx="8" fill="#ffe4e6" stroke="#be123c" stroke-width="1.5"/>
+<text x="1032" y="818" class="t" fill="#be123c">Box dropping → Fail</text>
+<text x="1032" y="834" class="b" xml:space="preserve">slip &gt; DropTolerance: lets go (Recover)</text>
+<text x="1032" y="848" class="b" xml:space="preserve">slip &gt; SlipTolerance only raises m_Boost</text>
+<text x="1032" y="862" class="b" xml:space="preserve">other carry failures: stand still,</text>
+<text x="1032" y="876" class="b" xml:space="preserve">keep holding the box</text>
+<rect x="20" y="920" width="652" height="54" rx="8" fill="#ffe4e6" stroke="#be123c" stroke-width="1.5"/>
+<text x="30" y="938" class="t" fill="#be123c">Caught box → centred</text>
+<text x="664" y="936" class="n" text-anchor="end">NEW</text>
+<text x="30" y="954" class="b" xml:space="preserve">Catch step 5: the holder pushes the box up the belt (5 cm/s, at most 0.15 m) until its centre is on the</text>
+<text x="30" y="968" class="b" xml:space="preserve">body's centre line, so both hands reach in the same distance whatever the box width (0.1–0.4 m)</text>
+<rect x="688" y="920" width="652" height="54" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+<text x="698" y="938" class="t" fill="#475569">Legend</text>
+<text x="698" y="954" class="b" xml:space="preserve">blue measured · violet derived · amber state · green targets</text>
+<text x="698" y="968" class="b" xml:space="preserve">grey robot · red outcomes · NEW = changed since 0ec78d3</text>
 </svg>

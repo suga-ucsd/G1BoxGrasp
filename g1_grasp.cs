@@ -164,7 +164,8 @@ namespace G1Pipe
             k_GiveTouch = 0.005f; // m short of its stop spot a stopped box still counts as caught; m the box must still be short of it when the palm arrives; s the arm lags its IK target;
 
         private const float k_CentreSpeed = 0.05f,
-            k_CentreMax = 0.15f; // m/s the holder pushes a caught box up the belt toward the body's centre line; m at most
+            k_CentreMax = 0.15f,
+            k_Centred = 0.005f; // m/s the holder pushes a caught box up the belt to the body's centre line; m at most; m off it that counts as centred
 
         // m the grasp site waits in front of the box's front face before sliding in (+ FrontInset; the fingertips reach ~8.5 cm past it); s smoothing of the measured box acceleration; s spare the stopper leaves itself when it must go before the body is still; s spare the slide in must have before the box comes; s easing time constant of the stopper's command near its target; m short of the palm the box is when the palm starts matching its speed; m short of the palm the box counts as on it
         private const float k_DepthGain = 0.002f,
@@ -184,6 +185,7 @@ namespace G1Pipe
         private const float k_WristGain = 2f,
             k_WristRate = 1f; // wrist servo: rad/s per rad of palm error, cap
         private const float k_ThumbRate = 1.5f; // rad/s the thumb swings
+        private const float k_PoleRate = 0.15f; // m/s the elbow hint eases out or back
         private const float k_MaxCurl = 0.8f,
             k_CurlRate = 0.5f; // rad index + middle curl at most into the side face; rad/s they curl while the grip is short
         private const float k_ThumbStagger = 0.018f,
@@ -355,6 +357,9 @@ namespace G1Pipe
 
         [Group("Arms")]
         public Vector3 PoleOffset = new Vector3(-0.30f, 0.10f, 0.15f); // elbow hint from the pelvis: (forward, up, outward)
+
+        [Group("Arms")]
+        public float GripPoleOut = 0.15f; // m the elbow hint eases further out from the reach to the release: the IK closes the hands by turning the shoulders instead of swinging the upper arms into the torso
 
         [Group("Arms")]
         public Vector3 CarryOffset = new Vector3(0.30f, 0.10f, 0f); // box centre while carrying, from the pelvis: (forward, up, left)
@@ -567,6 +572,7 @@ namespace G1Pipe
         private float m_Reach; // m, current pelvis -> box (or slot) stand distance; shrinks on failed reaches
         private bool m_Retry; // Recover goes back for the next box (else stops)
         private float m_Still; // s the body has been still without a break (BodyMotion under StillSpeed)
+        private float m_PoleOut; // m the elbow hint is out past PoleOffset now (eases toward GripPoleOut while reaching and gripping)
         private float m_Slide; // m the hand targets sit ahead of the grip (- = in front of the box: the pre-grip points)
         private int m_Moves; // approach corrections made for the current attempt
         private Vector3 m_ApCmd; // approach: command of the current correction (vx, vy, yaw rate)
@@ -794,6 +800,9 @@ namespace G1Pipe
             {
                 m_Still = BodyMotion() < StillSpeed ? m_Still + ts : 0f;
                 TrackCarryFrame(ts);
+                float pole =
+                    m_Phase >= Phase.PreGrasp && m_Phase <= Phase.Release ? GripPoleOut : 0f;
+                m_PoleOut += Mathf.Clamp(pole - m_PoleOut, -k_PoleRate * ts, k_PoleRate * ts); // eased, so the arms re-fold slowly and never jolt the box
             }
             m_PhaseTime += ts;
             m_StepTime += ts;
@@ -1508,7 +1517,7 @@ namespace G1Pipe
         // Catch, every frame. Steps: 0 both hands folded while the body settles (the stop spot follows the pelvis: on the path with the palm
         // CatchPalmSide out from its centre line, so the arm's catch pose is the same for any box size), until it has been still for StillTime or the box is so close the stopper must go; 1 stopper to its waiting point in front of the
         // box's path (palm height, fingertips k_CatchFront clear of its front face); 2 slide in along the forward axis onto the stop spot; 3 in
-        // place (contact tared); 4 give; 5 caught (then pushed up the belt, at most k_CentreMax, until the other hand's grip point is MinSide off the body's centre line). From step 1 the spot is fixed in the world, except that once the stopper is at its waiting
+        // place (contact tared); 4 give; 5 caught (then pushed up the belt, at most k_CentreMax, until its centre is on the body's centre line, whatever its size). From step 1 the spot is fixed in the world, except that once the stopper is at its waiting
         // point (and only there) it moves down the belt (never back up, at most CatchShiftMax) to k_CatchClear past where the box will be when the
         // palm gets there - predicted from its speed and its measured acceleration; the slide only starts with time to finish before the box
         // (+ k_SlideSpare), and from then the spot is fixed, so the palm only moves straight forward into the box's path, never along it.
@@ -1650,25 +1659,26 @@ namespace G1Pipe
             }
             if (m_Step == 5)
             {
-                Arm r = s == m_Arms[0] ? m_Arms[1] : m_Arms[0];
-                float need = Math.Min(
-                    MinSide
-                        - r.Side * Vector3.Dot(Flat(GripPoint(r) - Pelvis()), LeftOf(Heading())),
-                    k_CentreMax + m_Give - m_Caught
-                ); // the other hand's grip point short of MinSide off the body's centre line
-                if (need > 0.002f)
+                float off =
+                        s.Side * Vector3.Dot(Flat(BoxCenter(m_Box) - Pelvis()), LeftOf(Heading())), // box centre off the body's centre line, on the stopper's side
+                    need = Math.Min(off, k_CentreMax + m_Give - m_Caught);
+                if (need > k_Centred)
                 {
                     if (m_Give == m_Caught)
                         Log.Info(
-                            $"[G1] {r.Name} grip point {need:F3} m short of MinSide off the body's centre line -> {s.Name} hand pushes the box up the belt toward the centre"
+                            $"[G1] box centre {off:F3} m off the body's centre line -> {s.Name} hand pushes it up the belt to the centre"
                         );
                     m_Give -= Math.Min(k_CentreSpeed * ts, need);
                     m_StepTime = 0f;
                     return;
                 }
+                if (m_StepTime <= 1.5f * ts && m_Give != m_Caught)
+                    Log.Info(
+                        $"[G1] box centred after a {m_Caught - m_Give:F3} m push: centre {off:F3} m off the body's centre line"
+                    );
                 if (!AwaitStill(m_StepTime, "before grasping the caught box"))
                     EnterGrasp();
-                return; // caught: hold it there (pushed toward the centre if the other hand can't reach it) until the body is still, then grasp
+                return; // caught: pushed to the centre, held there until the body is still, then grasp
             }
             if (past > m_HalfW || ChuteGap(m_Box) < -0.05f || m_PhaseTime > PhaseTimeout)
             {
@@ -3039,12 +3049,8 @@ namespace G1Pipe
                 );
             a.Capped = d.Length() > max;
             m_Robot!.SetInputVector3(a.Target, a.Capped ? t - d * (1f - max / d.Length()) : t);
-            m_Robot.SetInputVector3(
-                a.Pole,
-                m_Carrying
-                    ? CarryPoint(Mirror(PoleOffset, a.Side))
-                    : BodyPoint(Mirror(PoleOffset, a.Side))
-            );
+            Vector3 pole = Mirror(PoleOffset + new Vector3(0f, 0f, m_PoleOut), a.Side);
+            m_Robot.SetInputVector3(a.Pole, m_Carrying ? CarryPoint(pole) : BodyPoint(pole));
         }
 
         // Next straight segment toward goal. Pure vertical moves go straight. Near a box (NearBox) and below m_SafeY, a long move across or a big climb first rises
