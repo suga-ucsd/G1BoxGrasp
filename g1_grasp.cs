@@ -28,7 +28,6 @@ namespace G1Pipe
             PreGrasp,
             Squeeze,
             DragIn,
-            Reposition,
             Holding,
             Lift,
             PullIn,
@@ -173,13 +172,15 @@ namespace G1Pipe
         private const float k_SqueezeMargin = 1.25f,
             k_GripConfirm = 0.5f; // palms press toward this x the required force; grip OK: both palms on their faces and each hand (palm + fingers) >= the required force for 0.5 s
         private const float k_PalmHold = 0.3f; // s a palm must stay off its face before it counts as off (carry jostle makes it flicker)
-        private const float k_LiftSpeed = 0.05f; // m/s
+        private const float k_LiftSpeed = 0.05f,
+            k_ClearLift = 0.03f; // m/s; m the box rises before it is also pulled in toward the chest
+        private const float k_DriftTol = 0.10f,
+            k_DriftDone = 0.04f; // m a heavy box may walk the standing body off its spot before the walker steps it back; m short of the spot it stops
         private const float k_CarrySpeed = 0.1f; // m/s, box moves in the hands
-        private const float k_PlaceHover = 0.05f,
-            k_PlaceLowerSpeed = 0.03f; // m, m/s
-        private const float k_OpenSpeed = 0.05f,
-            k_ReleaseGap = 0.05f,
-            k_ReleaseTime = 1.5f,
+        private const float k_PlaceLowerSpeed = 0.03f; // m/s
+        private const float k_OpenSpeed = 0.3f,
+            k_ReleaseGap = 0.10f,
+            k_ReleaseTime = 0.5f,
             k_RetractUp = 0.10f; // m/s, m, s, m
         private const float k_Widen = 0.05f; // m, a hand landing on the box slides out at most this far
         private const float k_WristGain = 2f,
@@ -193,6 +194,13 @@ namespace G1Pipe
         private const float k_Snap = 0.05f,
             k_LocalMove = 0.10f,
             k_SafeMargin = 0.10f; // m: target tracked directly within this; shorter moves across go straight; travel height over belt and boxes
+        private const float k_OverTableInset = 0.05f; // m in from the table top's edges the box centre must be to go straight down
+        private const float k_HeadBottom = 0.30f,
+            k_HeadFront = 0.08f; // m over the pelvis the head starts (MJCF head mesh 0.33, less a margin); m ahead of the pelvis its front is
+        private const float k_FingerTip = 0.09f,
+            k_ParkClear = 0.04f,
+            k_ParkMin = 0.05f; // m the straight fingertips reach ahead of the grasp site; m a parked hand keeps them behind a passing box; m ahead of the pelvis a parked hand stays at least
+        private const float k_ParkSpeed = 0.05f; // m/s a hand parked through the catch moves at most
         private const float k_FoldSmooth = 0.8f,
             k_BoxNear = 0.35f; // s lag of a folded hand behind its (swaying, body-relative) fold point; m, hands this close to a box take the safe climb
         private const float k_MinSegment = 0.5f,
@@ -362,7 +370,10 @@ namespace G1Pipe
         public float GripPoleOut = 0.15f; // m the elbow hint eases further out from the reach to the release: the IK closes the hands by turning the shoulders instead of swinging the upper arms into the torso
 
         [Group("Arms")]
-        public Vector3 CarryOffset = new Vector3(0.30f, 0.10f, 0f); // box centre while carrying, from the pelvis: (forward, up, left)
+        public Vector3 CarryOffset = new Vector3(0.24f, 0.10f, 0f); // box centre while carrying, from the pelvis: (forward, up, left)
+
+        [Group("Arms")]
+        public float HeadClearance = 0.25f; // m a box tall enough to reach head height is carried with its near face this far in front of the head
 
         [Group("Arms")]
         public float HandMoveSpeed = 0.2f; // m/s average along each hand path segment (min-jerk: eases in and out, peaks at ~1.9x this)
@@ -443,7 +454,7 @@ namespace G1Pipe
         public float GripForceLimit = 100f; // % of the required squeeze each hand must hold for the grip to count (lower it if squeezes stall short)
 
         [Group("Arms")]
-        public bool LockWaist = true; // while the box is carried the waist holds still (the walker drives the legs only): the torso can't twist and swing the box
+        public bool LockWaist = true; // while the box is held the waist holds still (the walker drives the legs only): the torso can't twist and swing the box
 
         [Group("Arms")]
         public bool LockWrists = false; // wrist servo off: the wrists hold where they are (their zero pose if on from the start)
@@ -473,10 +484,7 @@ namespace G1Pipe
         public Entity? PlaceTarget; // the table top slab (unit-cube mesh, local +Y up); boxes go on its top face
 
         [Group("Place")]
-        public float PlaceSpacing = 0.25f; // m between slots along the table's near edge
-
-        [Group("Place")]
-        public float PlaceEdgeInset = 0.12f; // m, slot line this far in from the table's near edge (and ends)
+        public float PlaceEdgeInset = 0.12f; // m, the table spot the robot walks to is this far in from the table's near edge (and ends)
 
         [Group("Place")]
         public float PlaceStandDistance = 0.33f; // m, pelvis -> slot when placing (arm reach limit)
@@ -489,18 +497,6 @@ namespace G1Pipe
 
         [Group("Recovery")]
         public int MaxBoxAttempts = 2; // failed attempts before a box is skipped (until it moves)
-
-        [Group("Recovery")]
-        public int MaxRepositions = 3; // closer stand points tried per grasp and per place
-
-        [Group("Recovery")]
-        public float RepositionStep = 0.04f; // m closer per failed reach
-
-        [Group("Recovery")]
-        public float RepositionTolerance = 0.03f; // m, stepping goal tolerance (and the least move worth stepping for)
-
-        [Group("Recovery")]
-        public float MinStandDistance = 0.20f; // m, pelvis never steps closer than this to the box / slot
 
         [Group("Recovery")]
         public int MaxSqueezeTries = 3; // squeezes (reopen + re-centre between them) before the grip fails
@@ -565,9 +561,12 @@ namespace G1Pipe
         private float m_TurnYaw; // heading the current turn aims at (fixed when it starts)
         private float m_TurnCmd; // rad/s last yaw command of the current carry turn (ramped out from it)
         private Vector3 m_BackFrom; // pelvis when backing off began
+        private Vector3 m_Anchor; // pelvis spot the body holds while standing with the box (grip confirmed; Place began)
+        private Vector3 m_LiftTo; // box centre (pelvis coords) at the top of the lift
+        private bool m_Restoring; // the walker is stepping the body back onto m_Anchor
+        private Vector2 m_RestoreDir; // that correction's one direction: (+1 forward / -1 back, 0) or (0, +1 left / -1 right)
         private int m_TurnTries,
             m_WalkRetries,
-            m_Repositions,
             m_SqueezeTries; // retries used in the current turn / walk goal / reach / grip
         private float m_Reach; // m, current pelvis -> box (or slot) stand distance; shrinks on failed reaches
         private bool m_Retry; // Recover goes back for the next box (else stops)
@@ -857,7 +856,7 @@ namespace G1Pipe
                     if (m_Box < 0)
                         break; // nothing to pick yet: the status line lists every box and why
                     m_Reach = StandDistance;
-                    m_Repositions = m_SqueezeTries = m_WalkRetries = 0;
+                    m_SqueezeTries = m_WalkRetries = 0;
                     m_Stand = StandFor(
                         ChuteEntity!,
                         BoxCenter(m_Box),
@@ -910,9 +909,6 @@ namespace G1Pipe
                 case Phase.DragIn:
                     StepDragIn(ts);
                     break;
-                case Phase.Reposition:
-                    StepReposition(ts);
-                    break;
                 case Phase.Holding:
                     Hold(ts);
                     break; // test end state: keep the grip
@@ -920,26 +916,50 @@ namespace G1Pipe
                     StepLift(ts);
                     break;
                 case Phase.PullIn:
-                    if (Hold(ts) && MoveTowards(ref m_Center, CarryOffset, k_CarrySpeed * ts))
+                    if (
+                        Hold(ts)
+                        && MoveTowards(
+                            ref m_Center,
+                            new Vector3(CarryX(), CarryOffset.Y, CarryOffset.Z),
+                            k_CarrySpeed * ts
+                        )
+                    )
                         EnterTurnToTable();
                     break;
                 case Phase.BackOff:
-                    if (Hold(ts) && StepBackOff())
+                    if (!Hold(ts))
+                        break;
+                    if (m_Step == 2)
+                        HoldStation(); // the back-off spot, once backed away
+                    if (StepBackOff())
                         Advance(Phase.TurnToTable);
                     break;
                 case Phase.TurnToTable:
                     RaiseOverTable(ts);
-                    if (Hold(ts) && WalkerTurn(YawOf(FaceOf(PlaceTarget!)), k_CarryTurnTol))
+                    if (!Hold(ts))
+                        break;
+                    bool turned = WalkerTurn(YawOf(FaceOf(PlaceTarget!)), k_CarryTurnTol);
+                    HoldStation(); // on the back-off spot, turns included
+                    if (turned)
                         Advance(Phase.WalkToTable);
                     break;
                 case Phase.WalkToTable:
                     RaiseOverTable(ts);
-                    if (Hold(ts) && CarryWalk())
+                    if (!Hold(ts))
+                        break;
+                    bool walked = CarryWalk();
+                    if (m_Step != 1)
+                        HoldStation(); // the back-off spot before the walk, the stand spot after it
+                    if (walked)
                         Advance(Phase.FaceTable);
                     break;
                 case Phase.FaceTable:
                     RaiseOverTable(ts);
-                    if (Hold(ts) && WalkerTurn(YawOf(FaceOf(PlaceTarget!)), TurnTolerance))
+                    if (!Hold(ts))
+                        break;
+                    bool faced = WalkerTurn(YawOf(FaceOf(PlaceTarget!)), TurnTolerance);
+                    HoldStation(); // on the stand spot, turns included
+                    if (faced)
                         Advance(PlaceBox ? Phase.Place : Phase.Holding);
                     break;
                 case Phase.Place:
@@ -971,12 +991,12 @@ namespace G1Pipe
             PoseHands(ts);
         }
 
-        // LockWaist: while the box is held and carried (grip confirmed until Place) the walker drives the legs only and the waist holds the
-        // angles it had then, so the torso can't twist on the pelvis and swing the arms and box around. Placing, the walker has the waist
-        // again, so the torso can lean into the reach.
+        // LockWaist: while the box is held (grip confirmed until Release) the walker drives the legs only and the waist holds the angles
+        // it had then, so the torso can't twist on the pelvis and swing the arms and box around (given back while placing, the walker
+        // swung a heavy box loose: yaw +-10 deg, pitch 8-15 deg).
         private void HoldWaist()
         {
-            bool lockIt = LockWaist && m_Phase > Phase.Squeeze && m_Phase < Phase.Place;
+            bool lockIt = LockWaist && m_Phase > Phase.Squeeze && m_Phase < Phase.Release;
             if (lockIt != m_WaistLocked)
             {
                 m_Robot!.SetDrivenJoints(m_Active, lockIt ? s_LegsOnly : s_LegsAndWaistOnly);
@@ -1467,7 +1487,19 @@ namespace G1Pipe
         private bool Parked(Arm a) => m_Phase == Phase.Catch && (a != Stopper || m_Step == 0);
 
         // Catch pose: the stopper's palm on the stop spot of the box's downhill face (m_Center = the box centre there) once it goes; parked hands folded.
-        private Vector3 CatchPose(Arm a) => Parked(a) ? Fold(a) : m_StopCmd;
+        private Vector3 CatchPose(Arm a) => Parked(a) ? ParkPose(a) : m_StopCmd;
+
+        // A hand parked through the catch: the fold point, pulled back so its fingertips (k_FingerTip ahead of the grasp site) stay
+        // k_ParkClear behind the passing box's near face - a tall box slid into the parked right hand and was pushed further out.
+        private Vector3 ParkPose(Arm a)
+        {
+            float near =
+                Vector3.Dot(Flat(BoxCenter(m_Box) - Pelvis()), Heading())
+                - HalfExtent(m_Box, Heading());
+            Vector3 f = FoldOffset;
+            f.X = Mathf.Clamp(near - k_FingerTip - k_ParkClear, k_ParkMin, f.X);
+            return BodyPoint(Mirror(f, a.Side));
+        }
 
         // The stopper's target: HandTarget with the palm centred on the box's mid-height (a hit above the centre of mass twists the box away),
         // its lower edge never under BeltClearance.
@@ -1720,7 +1752,7 @@ namespace G1Pipe
             m_Boost = 1f;
             m_PickAt = m_BoxAt = BoxCenter(m_Box);
             m_Reach = StandDistance;
-            m_Repositions = m_SqueezeTries = m_WalkRetries = 0;
+            m_SqueezeTries = m_WalkRetries = 0;
             SetSafeY();
             h.Gap = 0f;
             r.Gap = ApproachGap + k_PreWiden;
@@ -2015,7 +2047,6 @@ namespace G1Pipe
                 );
                 m_Y0 = PalmMidY() - BoxCenter(m_Box).Y;
                 m_Slot = m_Center - Vector3.Up * m_HalfH; // pick spot (bottom centre): where the box goes back when not carried to the table
-                m_Repositions = 0;
                 bool far = GripAhead() > k_DragFrom;
                 if (far && LiftBox)
                     Log.Info(
@@ -2081,42 +2112,6 @@ namespace G1Pipe
             );
         }
 
-        // Next stand point m_Reach in front of p along the grip axis, a little closer each failed try (>= MinStandDistance, EdgeClearance
-        // kept from the surface edge). False if the repositions are used up or the new point isn't a real move.
-        private bool StepCloser(Entity surface, Vector3 p, string why)
-        {
-            float dist = Vector3.Dot(Flat(p - Pelvis()), m_Fwd);
-            if (dist <= m_Reach + RepositionTolerance)
-                m_Reach = Math.Max(MinStandDistance, dist - RepositionStep); // already this close: a few cm closer
-            Vector3 stand = StandFor(surface, p, m_Reach, m_Fwd);
-            float move = Flat(stand - Pelvis()).Length();
-            if (m_Repositions >= MaxRepositions || move < RepositionTolerance)
-                return false;
-            m_Stand = stand;
-            Log.Warn(
-                $"[G1] {why} -> stepping {move:F2} m to stand {m_Reach:F2} m from it ({++m_Repositions}/{MaxRepositions})"
-            );
-            return true;
-        }
-
-        // Steps onto the closer stand point without turning, holding the box, settles, then places again.
-        private void StepReposition(float ts)
-        {
-            if (!Hold(ts))
-                return;
-            if (m_Step == 0)
-            {
-                bool there = WalkTo(m_Stand, RepositionTolerance, false);
-                if (!there && !Stalled(m_ToGo, k_WalkProgress, PhaseTimeout))
-                    return;
-                if (!there)
-                    Log.Warn($"[G1] stepping stalled {m_ToGo:F2} m short -> placing from here");
-                NextStep();
-            }
-            else if (m_StepTime >= k_Settle)
-                Advance(Phase.Place);
-        }
-
         // How far ahead of the pelvis the grasp sites' grip spot is (m).
         private float GripAhead() =>
             Vector3.Dot(Flat(m_Center - Pelvis()), Heading()) - m_HalfD + FrontInset;
@@ -2145,19 +2140,35 @@ namespace G1Pipe
             Advance(Phase.Lift);
         }
 
-        // Lift straight up, then hold the box in pelvis coords so it follows the body; next carry it, or put it back down where it was picked.
+        // Lift in pelvis coords from the start, so the box follows the body (a body pushed back by the box's weight never stretches the
+        // arms after it): up k_ClearLift, then up the rest of LiftHeight and in toward CarryOffset together, so a heavy box comes close to
+        // the chest early. No station hold while picking up: its correction steps rocked the body to and fro and flung a heavy box. Next
+        // carry it, or put it back down where it was picked.
         private void StepLift(float ts)
         {
+            if (m_Step == 0)
+            {
+                SetAnchor();
+                m_Center = ToBody(m_Center - Pelvis());
+                m_Lat = ToBody(m_Lat);
+                m_Fwd = ToBody(m_Fwd);
+                m_Carrying = true;
+                m_LiftTo = new Vector3(
+                    Math.Min(m_Center.X, CarryX()),
+                    m_Center.Y + LiftHeight,
+                    m_Center.Z
+                );
+                NextStep();
+            }
             if (!Hold(ts))
                 return;
-            m_Lift = Math.Min(m_Lift + k_LiftSpeed * ts, LiftHeight);
-            if (m_Lift < LiftHeight)
+            float up = Math.Min(m_Center.Y + k_LiftSpeed * ts, m_LiftTo.Y),
+                fwd = up >= m_LiftTo.Y - LiftHeight + k_ClearLift
+                    ? Math.Max(m_Center.X - k_CarrySpeed * ts, m_LiftTo.X)
+                    : m_Center.X;
+            m_Center = new Vector3(fwd, up, m_Center.Z);
+            if (up < m_LiftTo.Y || fwd > m_LiftTo.X)
                 return;
-            m_Center = ToBody(m_Center + Vector3.Up * m_Lift - Pelvis());
-            m_Lat = ToBody(m_Lat);
-            m_Fwd = ToBody(m_Fwd);
-            m_Lift = 0f;
-            m_Carrying = true;
             Advance(
                 CarryToTable ? Phase.PullIn
                 : PlaceBox ? Phase.Place
@@ -2165,14 +2176,65 @@ namespace G1Pipe
             );
         }
 
+        // How far ahead of the pelvis the box is carried: CarryOffset, or - if its top can reach head height anywhere in the carry
+        // (raised over the table included) - far enough that its near face stays HeadClearance in front of the head.
+        private float CarryX() =>
+            CarryOffset.Y + k_MaxRaise + m_HalfH > k_HeadBottom
+                ? Math.Max(CarryOffset.X, k_HeadFront + HeadClearance + m_HalfD)
+                : CarryOffset.X;
+
+        // The pelvis spot to hold from now on (standing with the box).
+        private void SetAnchor()
+        {
+            m_Anchor = Pelvis();
+            m_Restoring = false;
+        }
+
+        // Standing with the box: once its weight has walked the body more than k_DriftTol off m_Anchor, and the body has been still for
+        // StillTime, the walker steps it back at the slowest command it steps at, along one direction only - forward / back first, sideways
+        // once that is within k_DriftDone - until that direction is within k_DriftDone (an overshoot ends it; the next waits for stillness).
+        // Never during a turn: a held box made combined commands stumble.
+        private void HoldStation()
+        {
+            Vector3 d = Flat(m_Anchor - Pelvis());
+            float fwd = Vector3.Dot(d, Heading()),
+                side = Vector3.Dot(d, LeftOf(Heading()));
+            bool turning = m_Cmd.Z != 0f;
+            if (!m_Restoring && !turning && d.Length() > k_DriftTol && m_Still >= StillTime)
+            {
+                m_RestoreDir =
+                    Math.Abs(fwd) > k_DriftDone
+                        ? new Vector2(Math.Sign(fwd), 0f)
+                        : new Vector2(0f, Math.Sign(side)); // one axis, one way
+                m_Restoring = true;
+                Log.Info(
+                    $"[G1] the box walked the body {d.Length():F3} m off its spot in {m_Phase} ({-fwd:F3} fwd, {-side:F3} left) -> stepping {(m_RestoreDir.X > 0f ? "forward" : m_RestoreDir.X < 0f ? "back" : m_RestoreDir.Y > 0f ? "left" : "right")} onto it"
+                );
+            }
+            if (!m_Restoring)
+                return;
+            float left = m_RestoreDir.X != 0f ? m_RestoreDir.X * fwd : m_RestoreDir.Y * side; // still to go along the chosen direction
+            if (turning || left < k_DriftDone)
+            {
+                m_Restoring = false;
+                Log.Info(
+                    $"[G1] {(turning ? "correction stopped for the turn" : "correction done")} in {m_Phase} ({d.Length():F3} m off its spot)"
+                );
+                return;
+            }
+            Drive(
+                m_RestoreDir.X > 0f ? k_FwdCmd
+                    : m_RestoreDir.X < 0f ? -k_BackCmd
+                    : 0f,
+                m_RestoreDir.Y * k_SideCmd,
+                0f
+            );
+        }
+
         // Picks the nearest free table slot and where to stand for it, then backs off the conveyor, turns to face the table, walks onto that spot and squares up.
         private void EnterTurnToTable()
         {
-            if (!FreeSlot(Pelvis() - Heading() * CarryBackDistance, out m_Slot)) // nearest to where it turns, after backing off
-            {
-                Fail("the table is full", false);
-                return;
-            }
+            m_Slot = TableSpot(m_Anchor - Heading() * CarryBackDistance); // nearest to where it turns, after backing off
             m_Reach = PlaceStandDistance;
             m_WalkRetries = 0;
             m_Stand = StandFor(PlaceTarget!, m_Slot, m_Reach, FaceOf(PlaceTarget!));
@@ -2182,51 +2244,45 @@ namespace G1Pipe
             Advance(Phase.BackOff);
         }
 
-        // Settle, switch the grip to world coords, move the box over its spot, then lower it until the surface holds it. If the hands
-        // can't get it down, step closer and place again (MaxRepositions); else release where it is.
+        // Settle and switch the grip to world coords; a box not yet over the table comes in over the table spot first; then it goes
+        // straight down where it is until the table holds it (or the hands can't go lower) and is let go there.
         private void StepPlace(float ts)
         {
+            if (m_PhaseTime <= 1.5f * ts)
+                SetAnchor();
             if (!Hold(ts))
                 return;
-            Vector3 rest = m_Slot + Vector3.Up * m_HalfH; // box centre resting on the surface
-            if (m_Step == 0 && m_StepTime >= k_Settle)
+            HoldStation();
+            Vector3 c = BoxCenter(m_Box);
+            if (m_Step == 0)
             {
+                if (m_StepTime < k_Settle)
+                    return;
                 m_Center = CarryPoint(m_Center);
                 m_Lat = CarryDir(m_Lat);
                 m_Fwd = CarryDir(m_Fwd);
                 m_Carrying = false;
                 NextStep();
             }
-            else if (
-                m_Step == 1
-                && MoveTowards(ref m_Center, rest + Vector3.Up * k_PlaceHover, k_CarrySpeed * ts)
-            )
-                NextStep();
-            else if (m_Step == 2)
+            else if (m_Step == 1)
+            {
+                if (
+                    OverTable(c, k_OverTableInset)
+                    || MoveTowards(
+                        ref m_Center,
+                        new Vector3(m_Slot.X, m_Center.Y, m_Slot.Z),
+                        k_CarrySpeed * ts
+                    )
+                )
+                    NextStep();
+            }
+            else
             {
                 m_Center = m_Center - Vector3.Up * (k_PlaceLowerSpeed * ts);
-                float above = BoxCenter(m_Box).Y - rest.Y; // how far the box still is above its resting height
-                if (above > 0.02f && m_Center.Y > BoxCenter(m_Box).Y - 0.02f)
+                float above = c.Y - m_HalfH - TopOf(PlaceTarget!).Y; // box bottom over the table top
+                if (above > 0.01f && m_Center.Y > c.Y - 0.02f)
                     return; // still coming down
-                bool low = LowBy(rest.Y) > 0f;
-                string why = $"box {above:F3} m above its spot, the hands can't go lower";
-                if (
-                    above > 0.02f
-                    && !low
-                    && StepCloser(CarryToTable ? PlaceTarget! : ChuteEntity!, m_Slot, why)
-                )
-                {
-                    // Carry it in pelvis coords while stepping.
-                    m_Center = ToBody(m_Center - Pelvis());
-                    m_Lat = ToBody(m_Lat);
-                    m_Fwd = ToBody(m_Fwd);
-                    m_Carrying = true;
-                    Advance(Phase.Reposition);
-                    return;
-                }
-                Log.Info(
-                    $"[G1] releasing {above:F3} m above the spot{(above <= 0.02f ? "" : low ? " - the spot is too low for the arms" : " - no closer stand point helps")}"
-                );
+                Log.Info($"[G1] releasing {above:F3} m over the table");
                 Advance(Phase.Release);
             }
         }
@@ -2723,37 +2779,30 @@ namespace G1Pipe
             }
         }
 
-        // Free slot on the table top nearest from: along its near edge, PlaceEdgeInset in from the edge and ends, PlaceSpacing apart. False if all taken.
-        private bool FreeSlot(Vector3 from, out Vector3 slot)
+        // The table spot nearest from: on the line PlaceEdgeInset in from the table top's near edge, PlaceEdgeInset in from its ends (where
+        // the robot walks to; the box goes down wherever it is over the table, no free-slot search for now).
+        private Vector3 TableSpot(Vector3 from)
         {
             TransformComponent t = PlaceTarget!.Transform;
             Vector3 face = FaceOf(PlaceTarget),
                 along = LeftOf(face);
-            float halfLen = 0.5f * Math.Max(t.WorldScale.X, t.WorldScale.Z),
+            float halfLen = 0.5f * Math.Max(t.WorldScale.X, t.WorldScale.Z) - PlaceEdgeInset,
                 halfWidth = 0.5f * Math.Min(t.WorldScale.X, t.WorldScale.Z);
             Vector3 line = TopOf(PlaceTarget) - face * (halfWidth - PlaceEdgeInset);
-            float best = float.MaxValue;
-            slot = line;
-            for (
-                float s = -halfLen + PlaceEdgeInset;
-                s <= halfLen - PlaceEdgeInset;
-                s += PlaceSpacing
-            )
-            {
-                Vector3 p = line + along * s;
-                bool taken = false;
-                for (int i = 0; i < m_Boxes.Count; i++)
-                    taken |=
-                        i != m_Box
-                        && Flat(BoxCenter(i) - p).Length() < 0.5f * PlaceSpacing
-                        && Math.Abs(BoxCenter(i).Y - p.Y) < 0.3f;
-                if (!taken && Flat(p - from).Length() < best)
-                {
-                    best = Flat(p - from).Length();
-                    slot = p;
-                }
-            }
-            return best < float.MaxValue;
+            return line
+                + along * Mathf.Clamp(Vector3.Dot(Flat(from - line), along), -halfLen, halfLen);
+        }
+
+        // Whether point p is over the table top, at least inset in from its edges.
+        private bool OverTable(Vector3 p, float inset)
+        {
+            TransformComponent t = PlaceTarget!.Transform;
+            Vector3 face = FaceOf(PlaceTarget),
+                d = Flat(p - TopOf(PlaceTarget));
+            return Math.Abs(Vector3.Dot(d, LeftOf(face)))
+                    <= 0.5f * Math.Max(t.WorldScale.X, t.WorldScale.Z) - inset
+                && Math.Abs(Vector3.Dot(d, face))
+                    <= 0.5f * Math.Min(t.WorldScale.X, t.WorldScale.Z) - inset;
         }
 
         // Collision geoms of one hand (wrist_yaw_link + hand links) for contact force sensing, and which of them are thumb and palm links.
@@ -2884,8 +2933,9 @@ namespace G1Pipe
             m_ChuteTop.Y
             - (m_ChuteN.X * (p.X - m_ChuteTop.X) + m_ChuteN.Z * (p.Z - m_ChuteTop.Z)) / m_ChuteN.Y;
 
-        // Wrist servo: turns each hand toward its zero-pose frame on the grip axes - fingers (X) along forward, Y along the squeeze axis, so the
-        // left palm (-Y) and right palm (+Y) face the box; heading axes when not gripping (and for the catch's parked hand). Closed on the measured hand frame, whatever the IK does.
+        // Wrist servo: turns each gripping hand toward its zero-pose frame on the grip axes - fingers (X) along forward, Y along the squeeze
+        // axis, so the left palm (-Y) and right palm (+Y) face the box. Closed on the measured hand frame, whatever the IK does. A hand not
+        // gripping (or parked through the catch) isn't steered: its wrist eases back to neutral.
         // A hand still climbing out from low down keeps its wrist still (turning there would swing the fingers into the belt); LockWrists keeps both still always.
         // Once the grip is confirmed (until Release) the box fixes the hands' orientation, so the wrists hold the angles they had then: steering on
         // only winds the command up to the joint limit, pinning the actuator at its torque limit with no stiffness or damping left to stop the box swinging.
@@ -2901,7 +2951,17 @@ namespace G1Pipe
                             a.WristAdr[i]
                         );
                 a.WristHeld = held;
-                if (a.Joints.Length < 7 || a.Rising || SiteWorld(a.Site).Y < a.Cmd.Y - k_Snap)
+                if (a.Joints.Length < 7)
+                    continue;
+                if (!LockWrists && (!grip || Parked(a)))
+                {
+                    for (int i = 0; i < 3; i++) // no steering: back to neutral (steering a parked hand wound its wrist to 73-93 deg)
+                        a.Joints[4 + i].Value = a.WristQ[i] =
+                            a.WristQ[i]
+                            - Mathf.Clamp(a.WristQ[i], -k_WristRate * ts, k_WristRate * ts);
+                    continue;
+                }
+                if (a.Rising || SiteWorld(a.Site).Y < a.Cmd.Y - k_Snap)
                     continue;
                 Vector3 x = grip && !Parked(a) ? (m_Carrying ? BodyDir(m_Fwd) : m_Fwd) : Heading(),
                     y = LeftOf(x),
@@ -2990,15 +3050,17 @@ namespace G1Pipe
                     a.T = a.Tau = 0f;
                 }
                 if (
-                    !grip
-                    && !newMove
-                    && a.Tau >= a.T
-                    && (target.Method.Name == nameof(Fold) || Parked(a))
+                    Parked(a)
+                    || !grip && !newMove && a.Tau >= a.T && target.Method.Name == nameof(Fold)
                 )
                 {
                     // Folded: follow the body's fold point with a k_FoldSmooth lag - drift is followed, bounces never reach the arms (and never
-                    // come back through them into the walker), and no path is re-planned.
-                    a.Cmd += (goal - a.Cmd) * (1f - (float)Math.Exp(-m_Dt / k_FoldSmooth));
+                    // come back through them into the walker), and no path is re-planned. A hand parked through the catch also moves no faster
+                    // than k_ParkSpeed: a quick parked arm shook the body while the other hand waited for the box.
+                    Vector3 step = (goal - a.Cmd) * (1f - (float)Math.Exp(-m_Dt / k_FoldSmooth));
+                    if (Parked(a) && step.Length() > k_ParkSpeed * m_Dt)
+                        step *= k_ParkSpeed * m_Dt / step.Length();
+                    a.Cmd += step;
                     a.Direct = true;
                     a.Rising = false;
                     SendTarget(a);
@@ -3102,8 +3164,7 @@ namespace G1Pipe
                     or Phase.TurnToTable
                     or Phase.WalkToTable
                     or Phase.FaceTable
-                    or Phase.Place
-                    or Phase.Reposition;
+                    or Phase.Place;
 
         // Safe travel height for the hands: k_SafeMargin over the conveyor top and the boxes on it.
         private void SetSafeY()
@@ -3162,7 +3223,7 @@ namespace G1Pipe
                 case 0:
                     if (m_StepTime < k_Settle)
                         return false;
-                    m_BackFrom = Pelvis();
+                    m_BackFrom = m_Anchor; // from where it gripped: any drift counts toward the back-off
                     break;
                 case 1:
                     Drive(-CarryBackSpeed * Math.Min(1f, m_StepTime / k_CarryRamp), 0f, 0f);
@@ -3175,6 +3236,8 @@ namespace G1Pipe
                         && m_StepTime < k_TurnMax
                     )
                         return false;
+                    m_Anchor = m_BackFrom - Heading() * CarryBackDistance; // from here on the body holds the back-off spot
+                    m_Restoring = false;
                     break;
                 default:
                     if (m_StepTime < k_ApCoast)
@@ -3219,7 +3282,7 @@ namespace G1Pipe
             m_ToGo = to.Length();
             if (m_Step == 0)
             {
-                if (BoxSteady())
+                if (!m_Restoring && BoxSteady())
                     NextStep();
                 return false;
             }
@@ -3240,6 +3303,8 @@ namespace G1Pipe
                     && m_StepTime < WalkTimeout
                 )
                     return false;
+                m_Anchor = m_Stand; // from here on (coast, FaceTable) the body holds the stand spot
+                m_Restoring = false;
                 NextStep();
                 return false;
             }
@@ -3261,7 +3326,7 @@ namespace G1Pipe
             switch (m_Step)
             {
                 case 0:
-                    if (m_StepTime < k_Settle || !BoxSteady())
+                    if (m_StepTime < k_Settle || m_Restoring || !BoxSteady())
                         return false;
                     if (Math.Abs(err) < tol)
                         return true;
@@ -3429,7 +3494,6 @@ namespace G1Pipe
                 m_Phase
                 is Phase.FaceBox
                     or Phase.WalkToBox
-                    or Phase.Reposition
                     or Phase.TurnToTable
                     or Phase.WalkToTable
             )
@@ -3525,10 +3589,6 @@ namespace G1Pipe
         // How much farther than reach the surface edge forces the robot to stand from p (> 0: p is out of reach by that much).
         private float ReachShort(Entity surface, Vector3 p, float reach) =>
             Vector3.Dot(p - StandFor(surface, p, reach, FaceOf(surface)), FaceOf(surface)) - reach;
-
-        // How far height y lies beyond ArmReach below the higher shoulder (> 0: out of reach from any stand point).
-        private float LowBy(float y) =>
-            Math.Max(BodyPos(m_Arms[0].Shoulder).Y, BodyPos(m_Arms[1].Shoulder).Y) - y - ArmReach;
 
         // Box i from MuJoCo: centre (world), speed, clearance under it on the conveyor, and half extent along a world direction (support function of its box geom).
         private Vector3 BoxCenter(int i)
