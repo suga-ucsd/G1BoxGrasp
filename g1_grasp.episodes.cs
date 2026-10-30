@@ -7,8 +7,11 @@ using Hazel.Data;
 namespace G1Pipe
 {
     // Episode runner for ACT data (RecordEpisodes): every catch -> place run is one Observer episode, and the script writes a sidecar of
-    // what the Observer can't record (data_pipeline/README.html, section 3.3). Done or Failed (or EpisodeTimeout) ends the episode;
-    // the next one starts exactly as Play did (same scene state on the same frame, fresh walker), until EpisodeCount.
+    // what the Observer can't record (data_pipeline/README.html, section 3.3). Every episode, the first too, starts from the same
+    // reset on the frame Begin sets the robot up (Play's qpos, fresh walker); one box of the scene's pool, picked with the episode's
+    // seed, starts at BoxStart on the belt, the others wait in a row at ParkSpot (where they sit in the editor doesn't matter, as long
+    // as no two overlap). Done or Failed (or
+    // EpisodeTimeout) ends the episode, until EpisodeCount.
     public partial class G1BoxGrasp
     {
         [Group("Recording")]
@@ -21,14 +24,27 @@ namespace G1Pipe
         public float EpisodeTimeout = 80f; // s, a run still going then ends the episode as failed (the Observer cuts episodes at 90)
 
         [Group("Recording")]
+        public bool RandomizeBox = true; // each episode a random box of the pool (every free box in the scene) starts on the belt
+
+        [Group("Recording")]
+        public int Seed = 0; // episode e picks its box with seed Seed + e (0 = a seed from the clock, logged)
+
+        [Group("Recording")]
+        public Vector3 BoxStart = new Vector3(0.61614f, 0.734044f, 0.978122f); // world centre of the episode's box at the start (top of the belt)
+
+        [Group("Recording")]
+        public Vector3 ParkSpot = new Vector3(-2f, 0.1f, -1.5f); // world spot of the first box not in use; the rest line up 0.6 m apart along +Z
+
+        [Group("Recording")]
         public string SidecarDirectory = ""; // runs go in run_<time> folders here ("" = ~/Documents/LuckyEngine/DataSidecars)
 
         /// <summary>Episode runner state: kept through the per-episode reset of everything else.</summary>
         private sealed class Recorder
         {
             public int Episode; // Observer episode index (sidecar numbering)
-            public bool Begun,
-                Restore; // the next Start frame puts the scene back as Play started it
+            public int BaseSeed,
+                Box; // this episode's box (index into m_Boxes)
+            public bool Begun;
             public string Dir = "";
             public StreamWriter? Csv;
             public int Frame;
@@ -62,26 +78,53 @@ namespace G1Pipe
             : p == Phase.Place ? 4
             : 5;
 
-        // Start frames while recording: the first episode saves the scene's qpos on the frame Begin sets the robot up; each later one
-        // puts it back on that same frame, with the walker switched off and on (fresh, as on Play), so Begin runs as it did on Play.
+        // Start frames while recording: the scene's qpos is saved on the first episode's frames, and every episode (the first too) starts
+        // from it: walker off, MuJoCo reset (velocities, contacts), the saved qpos, the episode's boxes placed, walker on (fresh, as on
+        // Play). Begin then sets the robot up as it does on Play.
         private void StartEpisodeState()
         {
             Recorder r = m_Rec;
             if (!RecordEpisodes)
                 return;
-            if (!r.Restore)
-            {
-                if (r.Episode == 0)
-                    m_Mujoco!.GetFullQpos(r.StartQpos ??= new float[m_Mujoco.ModelNq]);
-                return;
-            }
-            r.Restore = false;
+            if (r.Episode == 0)
+                m_Mujoco!.GetFullQpos(r.StartQpos = new float[m_Mujoco.ModelNq]); // scene bodies can join the model a few frames in
             m_Robot!.SetPolicyActive(RotatorSlotId, false);
             m_Robot.SetPolicyActive(WalkerSlotId, false);
             m_Mujoco!.ResetToInitialState();
             m_Mujoco.SetFullQpos(r.StartQpos!);
+            PlaceBoxes();
             m_Mujoco.ReseedPolicyPDTargets();
             SetLocomotion(WalkerSlotId);
+        }
+
+        // The episode's box (picked with seed BaseSeed + episode; box 0 without RandomizeBox) goes to BoxStart, every other box to its own
+        // spot in the row at ParkSpot, all upright as in the editor, so no two boxes ever start inside each other.
+        private void PlaceBoxes()
+        {
+            Recorder r = m_Rec;
+            FindBoxes();
+            if (m_Boxes.Count == 0)
+                return; // not in the model yet: Begin retries next frame
+            if (r.BaseSeed == 0)
+                r.BaseSeed = Seed != 0 ? Seed : Environment.TickCount & 0xffff | 1;
+            r.Box = RandomizeBox
+                ? new System.Random(r.BaseSeed + r.Episode).Next(m_Boxes.Count)
+                : 0;
+            Quaternion toMj = m_Mujoco!.GetAxisHzToMj();
+            Vector3 offset = m_Mujoco.GetSceneTranslation();
+            for (int i = 0, slot = 0; i < m_Boxes.Count; i++)
+            {
+                Vector3 p =
+                    toMj
+                    * (
+                        (i == r.Box ? BoxStart : ParkSpot + new Vector3(0f, 0f, 0.6f * slot++))
+                        - offset
+                    );
+                uint a = m_Mujoco.GetJointQposAdr(m_Mujoco.GetBodyFreeJointIndex(m_Boxes[i].Body));
+                float[] v = { p.X, p.Y, p.Z, toMj.W, toMj.X, toMj.Y, toMj.Z }; // upright: no rotation in the editor
+                for (uint k = 0; k < 7; k++)
+                    m_Mujoco.SetQposByIndex(a + k, v[k]);
+            }
         }
 
         // End of every OnUpdate: begins an episode once the run is set up, writes this tick's sidecar row, ends the episode with the run.
@@ -95,6 +138,8 @@ namespace G1Pipe
                 BeginRecordedEpisode();
                 return;
             }
+            if (r.Frame == 0)
+                r.BoxStart = BoxCenter(r.Box);
             int label = PhaseLabel(m_Phase);
             Observer.SetCurrentTaskIndex(label);
             r.Csv!.WriteLine(
@@ -142,7 +187,9 @@ namespace G1Pipe
                         );
                 r.Dir = Path.Combine(root, $"run_{DateTime.Now:yyyyMMdd_HHmmss}");
                 Directory.CreateDirectory(r.Dir);
-                Log.Info($"[G1] recording {EpisodeCount} episodes, sidecars in {r.Dir}");
+                Log.Info(
+                    $"[G1] recording {EpisodeCount} episodes{(RandomizeBox ? $" from a pool of {m_Boxes.Count} boxes, seed {r.BaseSeed}" : "")}, sidecars in {r.Dir}"
+                );
             }
             Observer.BeginEpisode();
             r.Csv = new StreamWriter(Path.Combine(r.Dir, $"episode_{r.Episode:D6}.csv"));
@@ -152,11 +199,23 @@ namespace G1Pipe
             r.Frame = 0;
             r.Time = 0f;
             r.FailReason = "";
-            r.BoxStart = BoxCenter(0);
             r.RobotStart = Pelvis();
             r.Begun = true;
-            Log.Info($"[G1] episode {r.Episode} begins");
+            Log.Info(
+                $"[G1] episode {r.Episode} begins with {BoxTag(r.Box)} ({2f * Math.Max(m_Boxes[r.Box].Half.X, m_Boxes[r.Box].Half.Y):F2} m wide, {m_Mujoco!.GetBodyMass(m_Boxes[r.Box].Body):F2} kg)"
+            );
         }
+
+        // A box's entity tag (its MuJoCo body is lucky_body_<entity id>).
+        private string BoxTag(int i) =>
+            Scene
+                .FindEntityByID(
+                    ulong.Parse(
+                        m_Mujoco!.GetBodyNameByIndex(m_Boxes[i].Body)!["lucky_body_".Length..]
+                    )
+                )
+                ?.Tag
+            ?? $"box {i}";
 
         // Ends the episode (Observer and sidecar header), then stops the recording after the last one or resets for the next.
         private void EndRecordedEpisode(bool success)
@@ -164,7 +223,7 @@ namespace G1Pipe
             Recorder r = m_Rec;
             Observer.EndCurrentEpisode(success);
             r.Csv!.Dispose();
-            Vector3 size = m_Boxes[0].Half * 2f; // MuJoCo frame: x, y across, z up
+            Vector3 size = m_Boxes[r.Box].Half * 2f; // MuJoCo frame: x, y across, z up
             string V(Vector3 v) => FormattableString.Invariant($"[{v.X:F4}, {v.Y:F4}, {v.Z:F4}]");
             string planar =
                 success && m_Box >= 0
@@ -174,17 +233,17 @@ namespace G1Pipe
                 Path.Combine(r.Dir, $"episode_{r.Episode:D6}.json"),
                 FormattableString.Invariant(
                     $$"""
-                    {"episode": {{r.Episode}}, "seed": null, "success": {{(
+                    {"episode": {{r.Episode}}, "seed": {{(RandomizeBox ? r.BaseSeed + r.Episode : "null")}}, "success": {{(
                         success ? "true" : "false"
                     )}}, "fail_reason": "{{r.FailReason.Replace("\\", "/").Replace("\"", "'")}}",
-                     "box": {"tag": "box0", "width": {{Math.Max(
+                     "box": {"tag": "{{BoxTag(r.Box)}}", "width": {{Math.Max(
                         size.X,
                         size.Y
                     ):F4}}, "depth": {{Math.Min(
                         size.X,
                         size.Y
                     ):F4}}, "height": {{size.Z:F4}}, "mass": {{m_Mujoco!.GetBodyMass(
-                        m_Boxes[0].Body
+                        m_Boxes[r.Box].Body
                     ):F4}}},
                      "box_start": {{V(r.BoxStart)}}, "robot_start": {{V(
                         r.RobotStart
@@ -209,7 +268,7 @@ namespace G1Pipe
         }
 
         // Every private field back to its initial value (a fresh instance's; the inspector's public fields stay) and the walker on, so the
-        // next frame is a Start frame again: StartEpisodeState puts the scene back there and Begin sets the robot up as on Play.
+        // next frame is a Start frame again: StartEpisodeState puts the scene back and Begin sets the robot up as on Play.
         private void ResetEpisode()
         {
             var fresh = new G1BoxGrasp();
@@ -221,7 +280,6 @@ namespace G1Pipe
                 if (f.Name is not (nameof(m_Robot) or nameof(m_Mujoco) or nameof(m_Rec)))
                     f.SetValue(this, f.GetValue(fresh));
             SetLocomotion(WalkerSlotId);
-            m_Rec.Restore = true;
         }
     }
 }

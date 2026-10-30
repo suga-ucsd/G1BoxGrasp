@@ -546,6 +546,7 @@ namespace G1Pipe
         private uint[] m_WaistAdr = new uint[0]; // waist yaw, roll, pitch qpos addresses (for the log)
         private MujocoActuator[] m_Waist = new MujocoActuator[0]; // their actuators (script-held while LockWaist locks them)
         private readonly float[] m_WaistQ = new float[3]; // rad the locked waist holds
+        private readonly bool[] m_WaistIK = new bool[3]; // the waist actuators' IK flags before the lock (given back with the waist)
         private bool m_WaistLocked;
         private Quaternion m_MjToHz = Quaternion.Identity; // MuJoCo -> Hazel axes
         private Vector3 m_MjOffset; // MuJoCo -> Hazel translation
@@ -558,6 +559,7 @@ namespace G1Pipe
             m_WatchTime; // progress watchdog: best metric, s since it improved, s since the watch started
         private uint m_Active; // locomotion policy slot driving the legs + waist
         private float m_GripLift; // m the grip is raised up the box so the arms can reach it
+        private float m_DragLeft; // m the grip still has to be dragged in (fixed when the drag starts)
         private float m_TurnYaw; // heading the current turn aims at (fixed when it starts)
         private float m_TurnCmd; // rad/s last yaw command of the current carry turn (ramped out from it)
         private Vector3 m_BackFrom; // pelvis when backing off began
@@ -1003,7 +1005,12 @@ namespace G1Pipe
             {
                 m_Robot!.SetDrivenJoints(m_Active, lockIt ? s_LegsOnly : s_LegsAndWaistOnly);
                 for (int i = 0; i < 3; i++)
+                {
                     m_WaistQ[i] = (float)m_Mujoco!.GetJointPosition(m_WaistAdr[i]);
+                    if (lockIt)
+                        m_WaistIK[i] = m_Waist[i].IK;
+                    m_Waist[i].IK = !lockIt && m_WaistIK[i]; // script-owned while locked: else its ctrl stayed 0 and the waist snapped straight (6 deg pitch in 0.1 s)
+                }
                 m_WaistLocked = lockIt;
                 Log.Info(
                     $"[G1] waist {(lockIt ? $"locked at (yaw, roll, pitch) [{Degs(m_WaistAdr)}] deg in {m_Phase}" : $"back to the walker in {m_Phase}")}"
@@ -2118,10 +2125,16 @@ namespace G1Pipe
         private float GripAhead() =>
             Vector3.Dot(Flat(m_Center - Pelvis()), Heading()) - m_HalfD + FrontInset;
 
-        // Drag in: still squeezing, the grip slides toward the body at k_DragSpeed (the box sliding on the belt) until the grip spot is
-        // k_DragTo ahead, then Lift. A box trailing the hands by more than k_DragLag is lifted from where it is.
+        // Drag in: still squeezing, the grip slides toward the body at k_DragSpeed (the box sliding on the belt) by the distance that
+        // put it k_DragTo ahead when the drag began, then Lift (a fixed distance: the body stepping back must not keep the pull going).
+        // A box trailing the hands by more than k_DragLag is lifted from where it is.
         private void StepDragIn(float ts)
         {
+            if (m_Step == 0)
+            {
+                m_DragLeft = GripAhead() - k_DragTo; // measured once: a body stepping back while dragging must not keep the pull going
+                NextStep();
+            }
             if (!Hold(ts))
                 return;
             float lag = Vector3.Dot(Flat(BoxCenter(m_Box) - m_Center), m_Fwd);
@@ -2132,9 +2145,11 @@ namespace G1Pipe
                 );
                 m_Center = BoxCenter(m_Box);
             }
-            else if (GripAhead() > k_DragTo)
+            else if (m_DragLeft > 0f)
             {
-                m_Center -= m_Fwd * (k_DragSpeed * ts);
+                float d = Math.Min(k_DragSpeed * ts, m_DragLeft);
+                m_Center -= m_Fwd * d;
+                m_DragLeft -= d;
                 return;
             }
             Log.Info($"[G1] dragged in: grip {GripAhead():F2} m ahead | {ArmAngles()}");

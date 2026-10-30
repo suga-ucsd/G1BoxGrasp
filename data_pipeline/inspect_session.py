@@ -239,7 +239,8 @@ def episode_html(ep: Episode, side: Sidecar | None, checks: list, info: dict, fp
     body.append(f'<h3>Walker, waist, IMU</h3><div class="grid wide">{"".join(charts)}</div>')
 
     # Box and pelvis (privileged poses: x, y, z, then the quaternion; MuJoCo frame, z up)
-    poses = [c for c in r.columns if c.startswith("pose.")]
+    tag = ((side.header.get("box") or {}).get("tag") if side is not None else None) or ""
+    poses = [c for c in r.columns if c == "pose.pelvis" or c.startswith("pose.box.") and (f"pose.box.{tag}" not in r or c == f"pose.box.{tag}")]  # the episode's box only
     if poses:
         charts = []
         pel = np.stack(r["pose.pelvis"].to_numpy()) if "pose.pelvis" in r else None
