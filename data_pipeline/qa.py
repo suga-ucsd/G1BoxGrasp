@@ -2,7 +2,7 @@
 or NaN data, frame count mismatches, resets inside an episode, actions out of range, unclear alignment) exit 1.
 
     python qa.py --session DataSessions/session_X --sidecar DataSidecars/run_X --mjcf .../g1_three_fingers.xml \
-        --cameras HeadCam LeftWristCam RightWristCam --csv qa_session_X.csv
+        --cameras head_camera left_wrist_camera right_wrist_camera --csv qa_session_X.csv
 """
 
 from __future__ import annotations

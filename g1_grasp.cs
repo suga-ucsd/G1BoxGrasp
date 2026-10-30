@@ -13,7 +13,7 @@ namespace G1Pipe
     // The "Phases" checkboxes switch groups of phases off for testing. Every phase has a progress watchdog: a stall triggers a corrective
     // retry (step closer, re-squeeze, re-turn); when those run out the attempt fails (Recover) and the next box is tried; a box that fails
     // MaxBoxAttempts times is skipped until it moves.
-    public class G1BoxGrasp : Entity
+    public partial class G1BoxGrasp : Entity
     {
         private enum Phase
         {
@@ -822,6 +822,7 @@ namespace G1Pipe
             switch (m_Phase)
             {
                 case Phase.Start:
+                    StartEpisodeState();
                     Begin();
                     break;
                 case Phase.FindBox:
@@ -989,6 +990,7 @@ namespace G1Pipe
             OrientWrists(ts);
             HoldWaist();
             PoseHands(ts);
+            RecordTick(ts);
         }
 
         // LockWaist: while the box is held (grip confirmed until Release) the walker drives the legs only and the waist holds the angles
@@ -2319,7 +2321,7 @@ namespace G1Pipe
                 Log.Info(
                     $"[G1] placed {Flat(BoxCenter(m_Box) - m_Slot).Length():F3} m from its spot"
                 );
-                Advance(RepeatLoop ? Phase.FindBox : Phase.Done);
+                Advance(Repeat ? Phase.FindBox : Phase.Done);
             }
         }
 
@@ -2587,7 +2589,7 @@ namespace G1Pipe
                 NextStep();
             }
             else if (!Gliding() && m_StepTime >= k_Settle)
-                Advance(m_Retry && RepeatLoop ? Phase.FindBox : Phase.Failed);
+                Advance(m_Retry && Repeat ? Phase.FindBox : Phase.Failed);
         }
 
         // While holding: keep squeezing at HeldPalmForce (or what the weight needs), track the hand targets, boost the force if the box slips, fail if it slides out.
@@ -3541,6 +3543,8 @@ namespace G1Pipe
         private void Fail(string reason, bool retry = true, bool skip = false)
         {
             Log.Error($"[G1] failed in {m_Phase}: {reason}");
+            if (m_Rec.FailReason == "")
+                m_Rec.FailReason = $"{m_Phase}: {reason}"; // the episode's first failure, for its sidecar
             if (m_Carrying)
             {
                 Log.Warn("[G1] still carrying the box -> standing still holding it");

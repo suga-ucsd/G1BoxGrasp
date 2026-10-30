@@ -2,8 +2,8 @@
 action (35), three camera videos and a phase label, successful episodes only by default.
 
     python le2act.py --session DataSessions/session_X --sidecar DataSidecars/run_X \
-        --cameras head=HeadCam wrist_left=LeftWristCam wrist_right=RightWristCam \
-        --out datasets/g1_box_act --repo-id local/g1_box_act --size 240x320
+        --cameras head=head_camera wrist_left=left_wrist_camera wrist_right=right_wrist_camera \
+        --out datasets/g1_box_act --repo-id local/g1_box_act --size 256x256
 """
 
 from __future__ import annotations
@@ -45,10 +45,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--session", nargs="+", required=True, help="Observer session folder(s)")
     ap.add_argument("--sidecar", nargs="+", required=True, help="sidecar folder(s), one per session, same order")
-    ap.add_argument("--cameras", nargs="+", required=True, help="key=OutputName, e.g. head=HeadCam")
+    ap.add_argument("--cameras", nargs="+", required=True, help="key=OutputName, e.g. head=head_camera")
     ap.add_argument("--out", required=True, help="dataset root to create")
     ap.add_argument("--repo-id", default="local/g1_box_act")
-    ap.add_argument("--size", default="240x320", help="HxW the frames are resized to")
+    ap.add_argument("--size", default="256x256", help="HxW the frames are resized to")
     ap.add_argument("--shift", default="auto", help="rows from a control tick to its ctrl: auto, 0, 1, ...")
     ap.add_argument("--segment", default="all", choices=["all", "reach", "carry"], help="whole episode or one half")
     ap.add_argument("--include-failures", action="store_true")

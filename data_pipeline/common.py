@@ -1,5 +1,5 @@
-"""Shared by every data_pipeline script: the state and action layouts, the schema column names, the sidecar
-format, and readers for an Observer session folder and its sidecar."""
+"""Shared by every data_pipeline script: the state and action layouts, the column names, the sidecar format, and
+readers for an Observer session folder (MujocoFull recorder mode) and its sidecar."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ ARM_JOINTS = [f"{s}_{j}_joint" for s in SIDES for j in ARM]
 HAND_JOINTS = [f"{s}_hand_{j}_joint" for s in SIDES for j in HAND]
 WAIST_JOINTS = ["waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint"]
 UPPER_JOINTS = ARM_JOINTS + HAND_JOINTS + WAIST_JOINTS  # 31
-IMU = {"imu.torso_gyro": "imu-torso-angular-velocity", "imu.torso_acc": "imu-torso-linear-acceleration"}
+IMU = ["imu.pelvis_gravity", "imu.pelvis_gyro"]  # from the pelvis orientation: gravity in the pelvis frame, angular velocity (rad/s)
 
 
 def q(joint: str) -> str:
@@ -32,7 +32,7 @@ def u(joint: str) -> str:
 
 
 # Policy vectors: observation.state (37) and action (35)
-STATE_COLUMNS = [q(j) for j in UPPER_JOINTS] + list(IMU)  # Observer columns (each IMU column is 3 wide)
+STATE_COLUMNS = [q(j) for j in UPPER_JOINTS] + IMU  # session columns after expand_mujoco_full (each IMU column is 3 wide)
 STATE_NAMES = [q(j) for j in UPPER_JOINTS] + [f"{k}.{a}" for k in IMU for a in "xyz"]
 SIDECAR_ACTIONS = ["waist_lock", "cmd_vx", "cmd_vy", "cmd_yaw"]
 ACTION_NAMES = [u(j) for j in UPPER_JOINTS] + SIDECAR_ACTIONS
@@ -78,19 +78,22 @@ def read_session(root: str | Path, entity: int | None = None) -> tuple[dict, lis
     data = read_parquets(list(root.glob("data/chunk-*/file-*.parquet")))
     if data.empty:
         raise FileNotFoundError(f"no data parquet files under {root}/data")
+    data = expand_mujoco_full(data, info)
     ent = next((c for c in ("entity_id", "robot_id", "sim_id") if c in data.columns), None)
     if ent is not None:
         keep = entity if entity is not None else data[ent].mode().iat[0]  # the robot with the most rows
         data = data[data[ent] == keep]
     metas = read_parquets(list(root.glob("meta/episodes/chunk-*/file-*.parquet")))
-    meta_by_ep = {int(r["episode_index"]): r for r in metas.to_dict("records")} if not metas.empty else {}
+    meta_by_ep = {int(r["episode_index"]): r for r in metas.to_dict("records") if r.get("length", 1)} if not metas.empty else {}  # StopRecording adds an empty one
     per_chunk = int(info.get("chunks_size", 40))
     streams = sorted(p.name for p in (root / "videos").glob("*") if p.is_dir())
     episodes = []
     for idx, rows in data.groupby("episode_index"):
         idx = int(idx)
         meta = meta_by_ep.get(idx, {})
-        ep = Episode(idx, rows.sort_values("frame_index").reset_index(drop=True), meta=meta)
+        rows = rows.sort_values("frame_index").reset_index(drop=True)
+        rows[IMU[0]], rows[IMU[1]] = pelvis_imu(np.stack(rows["pose.pelvis"].to_numpy()), float(info.get("fps", 50)))
+        ep = Episode(idx, rows, meta=meta)
         for s in streams:
             chunk = meta.get(f"videos/{s}/chunk_index", idx // per_chunk)
             file = meta.get(f"videos/{s}/file_index", idx % per_chunk)
@@ -100,6 +103,36 @@ def read_session(root: str | Path, entity: int | None = None) -> tuple[dict, lis
                 ep.video_start[s] = float(meta.get(f"videos/{s}/from_timestamp", 0.0))
         episodes.append(ep)
     return info, episodes
+
+
+def expand_mujoco_full(data: pd.DataFrame, info: dict) -> pd.DataFrame:
+    """MujocoFull rows -> named columns: q.<joint> from observation.state (the whole qpos), u.<joint> from action (the
+    actuator commands), pose.pelvis and pose.box.<Tag> (x, y, z, qw, qx, qy, qz; MuJoCo frame) from the free joints, and
+    the post-reset bit of frame_flags."""
+    feats = info["features"]
+    state, action = np.stack(data["observation.state"].to_numpy()), np.stack(data["action"].to_numpy())
+    cols = {q(n): state[:, i] for i, n in enumerate(feats["observation.state"]["names"]) if not n.endswith(("_x", "_y", "_z", "_qw", "_qx", "_qy", "_qz"))}
+    cols |= {u(n): action[:, i] for i, n in enumerate(feats["action"]["names"])}
+    names = feats["observation.state"]["names"]
+    for i in [k for k, n in enumerate(names) if n.endswith("_x") and names[k + 6 : k + 7] == [n[:-2] + "_qz"]]:
+        body = names[i][:-2]
+        cols["pose.pelvis" if body == "floating_base_joint" else f"pose.box.{body}"] = list(state[:, i : i + 7])
+    cols[POST_RESET] = (data["frame_flags"].to_numpy() >> feats["frame_flags"]["names"].index("post_reset")) & 1
+    return pd.concat([data.drop(columns=["observation.state", "action"]).reset_index(drop=True), pd.DataFrame(cols)], axis=1)
+
+
+def pelvis_imu(pose: np.ndarray, fps: float) -> tuple[list, list]:
+    """What the pelvis IMU would give, from the pelvis pose rows (x, y, z, qw, qx, qy, qz): gravity direction in the pelvis
+    frame, and angular velocity in the pelvis frame from consecutive orientations (0 on the first row)."""
+    w, x, y, z = pose[:, 3:7].T
+    grav = np.stack([2 * (w * y - x * z), -2 * (w * x + y * z), -(w * w - x * x - y * y + z * z)], axis=1)  # R^T (0, 0, -1)
+    qa, qb = pose[:-1, 3:7], pose[1:, 3:7]
+    dq = np.stack([qa[:, 0] * qb[:, 1] - qa[:, 1] * qb[:, 0] - qa[:, 2] * qb[:, 3] + qa[:, 3] * qb[:, 2],
+                   qa[:, 0] * qb[:, 2] + qa[:, 1] * qb[:, 3] - qa[:, 2] * qb[:, 0] - qa[:, 3] * qb[:, 1],
+                   qa[:, 0] * qb[:, 3] - qa[:, 1] * qb[:, 2] + qa[:, 2] * qb[:, 1] - qa[:, 3] * qb[:, 0]], axis=1)  # vector part of conj(qa) qb
+    sign = np.sign(np.sum(qa * qb, axis=1, keepdims=True) + 1e-12)
+    gyro = np.vstack([np.zeros((1, 3)), 2 * fps * sign * dq])
+    return list(grav), list(gyro)
 
 
 def read_sidecar(root: str | Path, index: int) -> Sidecar | None:
@@ -159,15 +192,3 @@ def mjcf_ranges(path: str | Path) -> dict[str, tuple[float, float]]:
             lo, hi = map(float, j.get("range").split())
             ranges[j.get("name")] = (lo, hi)
     return ranges
-
-
-def scene_boxes(scene: str | Path) -> list[tuple[str, str]]:
-    """(tag, MuJoCo body name) of every free box in a .hscene: an entity with a MujocoBoxColliderComponent and
-    a MujocoJointComponent becomes body lucky_body_<entity id>."""
-    out = []
-    for block in re.split(r"\n  - Entity: ", Path(scene).read_text())[1:]:
-        if "MujocoBoxColliderComponent" in block and "MujocoJointComponent" in block:
-            eid = block.split("\n", 1)[0].strip()
-            tag = re.search(r"Tag: (.+)", block)
-            out.append((tag.group(1).strip() if tag else eid, f"lucky_body_{eid}"))
-    return out

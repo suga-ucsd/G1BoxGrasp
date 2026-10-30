@@ -3,7 +3,7 @@ observation.state (37) + done, success, phase, and applies the 35-value action; 
 simulation once per call, so the loop needs no timing of its own.
 
     python eval_act.py --checkpoint outputs/act_g1/checkpoints/last/pretrained_model --episodes 50 \
-        --cameras head=HeadCam wrist_left=LeftWristCam wrist_right=RightWristCam --size 240x320 --csv eval.csv
+        --cameras head=head_camera wrist_left=left_wrist_camera wrist_right=right_wrist_camera --size 256x256 --csv eval.csv
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--checkpoint", required=True, help="pretrained_model folder written by lerobot-train")
     ap.add_argument("--cameras", nargs="+", required=True, help="key=scene camera entity, keys as in the dataset")
-    ap.add_argument("--size", default="240x320", help="HxW the engine renders the cameras at (the training size)")
+    ap.add_argument("--size", default="256x256", help="HxW the engine renders the cameras at (the training size)")
     ap.add_argument("--episodes", type=int, default=50)
     ap.add_argument("--max-steps", type=int, default=4000, help="per episode (80 s at 50 Hz)")
     ap.add_argument("--host", default="127.0.0.1")

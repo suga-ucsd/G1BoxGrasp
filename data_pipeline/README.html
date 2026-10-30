@@ -37,14 +37,14 @@
 <body>
 
 <h1>data_pipeline: how the code works</h1>
-<div class="meta">Code guide for <code>G1BoxGrasp/data_pipeline/</code>, the Python half of the ACT data pipeline planned in <code>plans/G1_ACT_data_pipeline_plan.html</code>. 28 October 2026. Written against lerobot 0.6.1 and luckyrobots 0.5.0, and checked against their source.</div>
+<div class="meta">Code guide for <code>G1BoxGrasp/data_pipeline/</code>, the Python half of the ACT data pipeline planned in <code>plans/G1_ACT_data_pipeline_plan.html</code>. 28 October 2026; updated 30 October for LuckyEngine 2026.1.2 (MujocoFull recorder) after the first real sessions. Written against lerobot 0.6.1 and luckyrobots 0.5.0, and checked against their source.</div>
 
 <div class="box">
 <b class="t">In short</b>
-<p>Seven files take a recorded LuckyEngine session to a trained and evaluated ACT policy:</p>
+<p>Six files take a recorded LuckyEngine session to a trained and evaluated ACT policy:</p>
 <ol>
-<li><b><code>make_schema.py</code></b> writes the Observer's column schema.</li>
 <li><b><code>qa.py</code></b> checks each recorded session.</li>
+<li><b><code>inspect_session.py</code></b> renders it as an HTML page of checks, camera frames and charts.</li>
 <li><b><code>le2act.py</code></b> converts sessions and their script sidecars into a LeRobot&nbsp;3.0 dataset.</li>
 <li><b><code>train_act.sh</code></b> trains ACT on it.</li>
 <li><b><code>eval_act.py</code></b> runs the trained policy closed-loop in the engine over gRPC.</li>
@@ -52,24 +52,24 @@
 <p><code>common.py</code> holds everything they share: the vector layouts, the column names and the readers. <code>make_fake_session.py</code> writes a synthetic session, so the whole chain can be tested without the engine. Section&nbsp;9 has the test that was run.</p>
 </div>
 
-<div class="box warn"><b class="t">What isn't in this folder yet</b>
-Two C# pieces from the plan live in the engine project, and these scripts depend on their output.
+<div class="box warn"><b class="t">The C# side</b>
+Two C# pieces from the plan live next to <code>g1_grasp.cs</code>, and these scripts depend on their output.
 <ul>
-<li><b>The episode runner</b> (<code>g1_grasp.episodes.cs</code>) writes the sidecar described in section&nbsp;3.3.</li>
-<li><b><code>G1ActAgent.cs</code></b> publishes and accepts the vectors described in section&nbsp;8.</li>
+<li><b>The episode runner</b> (<code>g1_grasp.episodes.cs</code>, inspector group <i>Recording</i>) records each run as one Observer episode, resets the scene between episodes and writes the sidecar described in section&nbsp;3.3. Working in the engine since 30 October 2026 (section&nbsp;9.2). No randomization yet: every episode after a reset is identical.</li>
+<li><b><code>G1ActAgent.cs</code></b> publishes and accepts the vectors described in section&nbsp;8. Not written yet.</li>
 </ul>
-Until they exist, <code>make_fake_session.py</code> stands in for the recording side. The formats are fixed here, so the C# side has a contract to write to.</div>
+<code>make_fake_session.py</code> stands in for the recording side in the self-test.</div>
 
 <div class="toc">
 <div>1. Files and the order to run them</div>
 <div>2. The vectors: state, action, status</div>
-<div>3. Inputs: session, schema columns, sidecar</div>
+<div>3. Inputs: session, sidecar</div>
 <div>4. common.py</div>
-<div>5. make_schema.py</div>
+<div>5. inspect_session.py</div>
 <div>6. qa.py</div>
 <div>7. le2act.py</div>
 <div>8. train_act.sh and eval_act.py</div>
-<div>9. Testing without the engine</div>
+<div>9. Testing</div>
 <div>10. Design decisions and limits</div>
 </div>
 
@@ -77,28 +77,26 @@ Until they exist, <code>make_fake_session.py</code> stands in for the recording 
 <table>
 <thead><tr><th style="width:22%">File</th><th style="width:38%">What it does</th><th>When</th></tr></thead>
 <tbody>
-<tr><td><code>common.py</code></td><td>Joint lists, state and action layouts, schema column names, the sidecar format, the session and sidecar readers, the alignment and segment helpers.</td><td>Imported by every script.</td></tr>
-<tr><td><code>make_schema.py</code></td><td>Writes <code>schema/g1_act_schema.yaml</code> for the Observer's Custom Schema mode. It checks every name against the MJCF and finds the free boxes in the scene.</td><td>Once, and again whenever boxes are added to the scene.</td></tr>
-<tr><td><code>schema/g1_act_schema.yaml</code></td><td>The generated schema: 67 columns, made from the real <code>g1_three_fingers.xml</code> and <code>Main.hscene.auto</code>.</td><td>Pick it in Settings &rarr; Scene &rarr; Recorder &rarr; Data.</td></tr>
+<tr><td><code>common.py</code></td><td>Joint lists, state and action layouts, column names, the sidecar format, the session reader (MujocoFull layout) and sidecar reader, the pelvis IMU, the alignment and segment helpers.</td><td>Imported by every script.</td></tr>
 <tr><td><code>qa.py</code></td><td>Integrity checks and a per-episode summary of one session plus its sidecar. Exits 1 on any hard error.</td><td>After every recording session.</td></tr>
-<tr><td><code>le2act.py</code></td><td>Session(s) + sidecar(s) &rarr; one LeRobot&nbsp;3.0 dataset: 37 state values, 35 actions, three videos and the phase. Successful episodes only, by default.</td><td>After QA passes.</td></tr>
+<tr><td><code>le2act.py</code></td><td>Session(s) + sidecar(s) &rarr; one LeRobot&nbsp;3.0 dataset: 37 state values, 35 actions, the camera videos and the phase. Successful episodes only, by default.</td><td>After QA passes.</td></tr>
 <tr><td><code>train_act.sh</code></td><td><code>lerobot-train</code> with ACT settings in three modes: <code>smoke</code>, <code>pilot</code> and <code>full</code>.</td><td>On the GPU machine.</td></tr>
 <tr><td><code>eval_act.py</code></td><td>Closed-loop evaluation through the <code>luckyrobots</code> Session. Writes a per-episode CSV.</td><td>After training, with the editor's gRPC server running.</td></tr>
-<tr><td><code>make_fake_session.py</code></td><td>Writes a synthetic session and sidecar in the documented layout, with a chosen ctrl lag. With <code>--mjcf</code> its commands stay inside the joint ranges. Each video frame gets a distinct colour, so a one-frame offset can't hide.</td><td>Testing.</td></tr>
-<tr><td><code>tests/selftest.sh</code>, <code>tests/stub/</code></td><td>The whole chain without the engine: fake session, QA, conversion, a load-back check of alignment and video sync, 20 ACT steps, and evaluation against a stand-in <code>luckyrobots</code> Session.</td><td>After any change to these scripts.</td></tr>
+<tr><td><code>inspect_session.py</code></td><td>One HTML page per recorded session: per-episode checks (pass / warning / fail) on rows, tick spacing, resets, joint ranges, camera frame counts, frozen and blank frames, sidecar length, action alignment and phases; the phase timeline; each camera's frame at every phase start; every joint's measured angle against its command; the walker command, waist lock and pelvis IMU; the box and pelvis paths.</td><td>After every recording session, before converting.</td></tr>
+<tr><td><code>make_fake_session.py</code></td><td>Writes a synthetic MujocoFull session and sidecar, with a chosen ctrl lag and the empty trailing episode the engine adds. With <code>--mjcf</code> its commands stay inside the joint ranges. Each video frame gets a distinct colour, so a one-frame offset can't hide.</td><td>Testing.</td></tr>
+<tr><td><code>tests/selftest.sh</code>, <code>tests/stub/</code></td><td>The whole chain without the engine: fake session, QA, the viewer, conversion, a load-back check of alignment and video sync, 20 ACT steps, and evaluation against a stand-in <code>luckyrobots</code> Session.</td><td>After any change to these scripts.</td></tr>
 <tr><td><code>requirements.txt</code></td><td>lerobot[training] 0.6.1, luckyrobots 0.5.0, av, numpy, pandas, pyarrow.</td><td>Setup (Python 3.12+).</td></tr>
 </tbody>
 </table>
-<pre># once
-python make_schema.py --mjcf $G1/g1_three_fingers.xml --scene $SCENE/Main.hscene.auto --out schema/g1_act_schema.yaml
-# per recording session
-python qa.py --session $S --sidecar $SC --mjcf $G1/g1_three_fingers.xml --cameras HeadCam LeftWristCam RightWristCam --csv qa.csv
-python le2act.py --session $S --sidecar $SC --cameras head=HeadCam wrist_left=LeftWristCam wrist_right=RightWristCam \
-    --out datasets/g1_box_act --size 240x320
+<pre># engine (once): Recorder data mode MujocoFull, head_camera in its camera list; robot script: RecordEpisodes on, EpisodeCount N
+# per recording session (S = &lt;project&gt;/DataSessions/session_..., SC = ~/Documents/LuckyEngine/DataSidecars/run_...)
+python qa.py --session $S --sidecar $SC --mjcf $G1/g1_three_fingers.xml --cameras head_camera --csv qa.csv
+python inspect_session.py --session $S --sidecar $SC --mjcf $G1/g1_three_fingers.xml --out inspect.html
+python le2act.py --session $S --sidecar $SC --cameras head=head_camera --out datasets/g1_box_act --size 256x256
 # train, then evaluate in the engine
 ./train_act.sh full datasets/g1_box_act
 python eval_act.py --checkpoint outputs/act_g1_full_g1_box_act/checkpoints/last/pretrained_model \
-    --cameras head=HeadCam wrist_left=LeftWristCam wrist_right=RightWristCam --episodes 50</pre>
+    --cameras head=head_camera --episodes 50</pre>
 
 <h2>2. The vectors: state, action, status</h2>
 <p>These are defined once in <code>common.py</code>. Every script and both C# pieces use the same order.</p>
@@ -113,9 +111,9 @@ python eval_act.py --checkpoint outputs/act_g1_full_g1_box_act/checkpoints/last/
     <li>14 hand joints: left then right, each thumb 0/1/2, index 0/1, middle 0/1;</li>
     <li>3 waist joints: yaw, roll, pitch.</li>
     </ul></li>
-  <li>The torso gyro (x, y, z) and accelerometer (x, y, z).</li>
+  <li>The pelvis IMU, worked out from the recorded pelvis orientation (MujocoFull records no sensors): gravity in the pelvis frame (x, y, z) and the pelvis angular velocity (x, y, z, rad/s, from consecutive orientations). A real G1's pelvis IMU gives both.</li>
   </ul>
-  Names are <code>q.&lt;joint&gt;</code> and <code>imu.torso_gyro.x</code>, &hellip;</td></tr>
+  Names are <code>q.&lt;joint&gt;</code>, <code>imu.pelvis_gravity.x</code>, &hellip;, <code>imu.pelvis_gyro.z</code>.</td></tr>
 <tr><td><code>action</code></td><td class="n">35</td><td>
   <ul>
   <li>The 31 upper-body actuator commands, same joint order. Names are <code>u.&lt;joint&gt;</code>.</li>
@@ -135,24 +133,22 @@ python eval_act.py --checkpoint outputs/act_g1_full_g1_box_act/checkpoints/last/
 </tbody>
 </table>
 
-<h2>3. Inputs: session, schema columns, sidecar</h2>
-<h3>3.1 Observer session (LeRobot&nbsp;3.0-style, written by the engine)</h3>
+<h2>3. Inputs: session, sidecar</h2>
+<h3>3.1 Observer session (MujocoFull recorder mode, LuckyEngine 2026.1.2)</h3>
 <pre>session_&lt;date&gt;_&lt;time&gt;/
   data/chunk-NNN/file-NNN.parquet         one row per robot per data tick
   meta/info.json, meta/episodes/chunk-NNN/file-NNN.parquet
   videos/observation.images.&lt;OutputName&gt;/chunk-NNN/file-NNN.mp4   one file per episode</pre>
-<p>Every row starts with the index columns: <code>index</code>, <code>entity_id</code>, <code>timestamp</code>, <code>episode_index</code>, <code>frame_index</code>, <code>task_index</code>, <code>frame_flags</code>. The schema's columns follow them. The reader finds each episode's videos from <code>meta/episodes</code> when that table has <code>videos/&lt;key&gt;/chunk_index</code>, <code>file_index</code> and <code>from_timestamp</code>. Otherwise it uses the documented rule: episode N is in chunk N&nbsp;//&nbsp;Files&nbsp;Per&nbsp;Chunk, file N&nbsp;%&nbsp;Files&nbsp;Per&nbsp;Chunk.</p>
-<h3>3.2 Schema columns (Custom Schema mode)</h3>
+<p>Sessions are written to <code>&lt;project&gt;/DataSessions/session_&lt;date&gt;_&lt;time&gt;/</code>. This engine version's recorder has three data modes (RobotArm, MujocoFull, Drone) and no Custom Schema; MujocoFull is used. Each row holds <code>index</code>, <code>sim_id</code>, <code>timestamp</code>, <code>episode_index</code>, <code>frame_index</code>, <code>task_index</code>, <code>frame_flags</code> and two vectors, both named in <code>meta/info.json</code>:</p>
 <table>
-<thead><tr><th style="width:30%">Column</th><th style="width:28%">Source</th><th>Use</th></tr></thead>
+<thead><tr><th style="width:24%">Column</th><th>Contents</th><th style="width:30%">Use</th></tr></thead>
 <tbody>
-<tr><td><code>q.&lt;joint&gt;</code> &times;31</td><td><code>mujoco.qpos</code></td><td>state</td></tr>
-<tr><td><code>imu.torso_gyro</code>, <code>imu.torso_acc</code> (3 each)</td><td><code>mujoco.sensor</code></td><td>state</td></tr>
-<tr><td><code>u.&lt;joint&gt;</code> &times;31</td><td><code>mujoco.ctrl</code> (raw, not rescaled)</td><td>actions; <code>u.left_wrist_roll_joint</code> is also the alignment probe</td></tr>
-<tr><td><code>pose.pelvis</code>, <code>pose.box.&lt;Tag&gt;</code> (7 each)</td><td><code>mujoco.body_pose</code></td><td>Privileged, for analysis only. Never fed to the policy.</td></tr>
-<tr><td><code>flag.post_reset</code></td><td><code>engine.frame_flag</code> PostReset</td><td>QA: a reset may only appear on frame 0</td></tr>
+<tr><td><code>observation.state</code> (57)</td><td>The whole qpos: the pelvis free joint (<code>floating_base_joint_x</code> &hellip; <code>_qz</code>), all 43 joints, the box free joint (<code>PoolBox_01_x</code> &hellip; <code>_qz</code>).</td><td><code>q.&lt;joint&gt;</code>; <code>pose.pelvis</code> and <code>pose.box.&lt;Tag&gt;</code> (privileged, analysis only); the pelvis IMU.</td></tr>
+<tr><td><code>action</code> (43)</td><td>Every actuator's ctrl, by joint name. The walker drives the legs and waist through its own channel, so those record as 0; the script-written arm, hand and (locked) waist ctrl are exact.</td><td><code>u.&lt;joint&gt;</code>: the first 31 actions; <code>u.left_wrist_roll_joint</code> is the alignment probe.</td></tr>
+<tr><td><code>frame_flags</code></td><td>Bits <code>new_policy_step</code>, <code>post_reset</code>.</td><td><code>flag.post_reset</code>: a reset may only appear on frame 0.</td></tr>
 </tbody>
 </table>
+<p><code>read_session</code> expands these into the named columns above, so the other scripts never see the raw vectors. Videos are <code>videos/observation.images.head_camera/chunk-NNN/file-NNN.mp4</code>, one per episode, 256&times;256, located through <code>meta/episodes</code>. <code>StopRecording</code> appends an empty (length&nbsp;0) episode row there, which the reader skips.</p>
 <h3>3.3 Sidecar (written by the C# episode runner)</h3>
 <p>The Observer can't record values that exist only in the script. So the episode runner writes two files per episode into its own folder (for example <code>DataSidecars/run_&lt;time&gt;/</code>). Their numbering follows the Observer's episode order, from 0.</p>
 <table>
@@ -182,11 +178,12 @@ python eval_act.py --checkpoint outputs/act_g1_full_g1_box_act/checkpoints/last/
 
 <h2>4. common.py</h2>
 <ul>
-<li><b>Layouts.</b> <code>UPPER_JOINTS</code> (31) is built from the side, arm and hand name parts, so the order never depends on the MJCF's actuator order. The MJCF lists the right hand as thumb, index, middle and the left as thumb, middle, index. <code>STATE_COLUMNS</code> are the Observer column names; <code>STATE_NAMES</code> are the 37 expanded names. <code>ACTION_NAMES</code> adds the four sidecar values.</li>
+<li><b>Layouts.</b> <code>UPPER_JOINTS</code> (31) is built from the side, arm and hand name parts, so the order never depends on the MJCF's actuator order. The MJCF lists the right hand as thumb, index, middle and the left as thumb, middle, index. <code>STATE_COLUMNS</code> are the expanded session column names; <code>STATE_NAMES</code> are the 37 state names. <code>ACTION_NAMES</code> adds the four sidecar values.</li>
 <li><b><code>read_session(root, entity=None)</code></b>
   <ul>
-  <li>Reads every data Parquet file and keeps one robot: the most frequent <code>entity_id</code>, or the one given.</li>
+  <li>Reads every data Parquet file, expands the MujocoFull vectors (<code>expand_mujoco_full</code>) and keeps one robot: the most frequent <code>sim_id</code>, or the one given.</li>
   <li>Groups the rows by <code>episode_index</code>, sorted by <code>frame_index</code>.</li>
+  <li>Adds the pelvis IMU columns per episode (<code>pelvis_imu</code>).</li>
   <li>Attaches each episode's video path and start timestamp per stream, plus its <code>meta/episodes</code> row.</li>
   </ul>
   Returns <code>(info, [Episode])</code>.</li>
@@ -200,16 +197,17 @@ python eval_act.py --checkpoint outputs/act_g1_full_g1_box_act/checkpoints/last/
 <li><b><code>episode_arrays(ep, side, shift)</code></b> builds one episode's arrays: state from row <i>k</i>, the 31 ctrl values from row <i>k</i>+shift, and the waist lock, walker command and phase from sidecar tick <i>k</i>. Its length is the shorter of the two sources, minus the shift.</li>
 <li><b><code>segment(phase, which)</code></b> picks the frames for one half of the two-policy option: <code>reach</code> is catch to lift, up to the first carry frame; <code>carry</code> is from there to the end; <code>all</code> is everything.</li>
 <li><b><code>mjcf_ranges(path)</code></b> reads joint ranges from the MJCF. The position actuators use <code>inheritrange="1"</code>, so these are their control ranges.</li>
-<li><b><code>scene_boxes(scene)</code></b> splits the <code>.hscene</code> YAML on <code>- Entity:</code> and keeps every entity that has both a <code>MujocoBoxColliderComponent</code> and a <code>MujocoJointComponent</code>, i.e. the free boxes. It returns <code>(Tag, lucky_body_&lt;id&gt;)</code>, the MuJoCo body name the engine gives scene bodies.</li>
+<li><b><code>pelvis_imu(pose, fps)</code></b> turns the pelvis pose rows into gravity in the pelvis frame (R<sup>T</sup>&middot;(0,&nbsp;0,&nbsp;&minus;1)) and the body-frame angular velocity 2&middot;fps&middot;vec(q<sub>k&minus;1</sub><sup>*</sup>&nbsp;q<sub>k</sub>), 0 on the first row.</li>
 </ul>
 
-<h2>5. make_schema.py</h2>
-<ol>
-<li>Parses the MJCF and collects its joint, actuator and sensor names. If any of the 31 joints, their actuators or the two IMU sensors is missing, it stops: the Observer would refuse to record with that schema anyway.</li>
-<li>Finds the free boxes with <code>scene_boxes</code>, and stops if there are none.</li>
-<li>Writes one YAML line per column, grouped and commented: proprioception, IMU, actuator commands, privileged poses, the reset flag. It writes text directly rather than through a YAML library, so the comments survive.</li>
-</ol>
-<p>Run on the real files, it found one free box (<code>PoolBox_01</code> &rarr; <code>lucky_body_7092444559810950098</code>) and wrote 67 columns: 31 joint positions, 2 IMU sensors, 31 actuator commands, the pelvis and box poses, and the reset flag. The file parses as YAML. Re-run it after adding the box pool.</p>
+<h2>5. inspect_session.py</h2>
+<p>One self-contained HTML page per session, to judge the data by eye before converting. Per episode:</p>
+<ul>
+<li><b>Checks</b>, each pass, warning or fail: missing values, frame counter gaps, tick spacing, resets inside the episode, commands outside the joint ranges, one video frame per row, frozen frames (a live render never changes by under 0.02 per pixel), black frames, sidecar length, action alignment (the probe error at shifts 0, 1 and 2, and whether the probe moves enough to pin the shift down), waist lock values, phases present and in order, and the expert's outcome.</li>
+<li><b>The phase timeline</b> and each camera's frame at every phase start and at the end.</li>
+<li><b>Charts</b> (hover for values): every joint's measured angle against its command, lined up by the found shift; the walker command; the waist lock; the pelvis IMU; the box height and distance from the pelvis; the pelvis path.</li>
+</ul>
+<p>The page's verdict is the worst check of any episode; episodes that disagree on the action shift fail the session.</p>
 
 <h2>6. qa.py</h2>
 <p>Run once per session, before converting. Hard errors (exit code 1):</p>
@@ -304,21 +302,21 @@ For walker noise (DART), the sidecar logs both the intended command (<code>cmd_*
 <li><b>Resets</b> draw from the same seeded parameters as the recording runner, so the agent's episodes can be paired with the expert's.</li>
 </ul></div>
 
-<h2>9. Testing without the engine</h2>
+<h2>9. Testing</h2>
+<h3>9.1 Without the engine</h3>
 <p><code>make_fake_session.py</code> writes three 120-frame episodes in the layout above:</p>
 <ul>
 <li>three small H.264 videos per episode;</li>
-<li>list-valued IMU and pose columns;</li>
-<li>a post-reset flag on frame 0;</li>
+<li>the MujocoFull <code>observation.state</code> and <code>action</code> vectors, named in <code>meta/info.json</code>, with a turning pelvis;</li>
+<li>a post-reset bit on frame 0 and the empty trailing episode row;</li>
 <li>recorded ctrl lagging the script's command by <code>--lag</code> rows;</li>
 <li>episode 1 marked failed;</li>
 <li>a matching sidecar.</li>
 </ul>
-<p>It was run through the whole chain on 28 October in a Python&nbsp;3.12 environment with CPU torch 2.11 and lerobot 0.6.1. Run it yourself with <code>tests/selftest.sh path/to/g1_three_fingers.xml</code> from that environment.</p>
+<p>It was run through the whole chain on 28 October, and again on 30 October with the MujocoFull layout, in <code>.venv</code> (Python&nbsp;3.12, torch 2.11 with CUDA, lerobot 0.6.1). Run it with <code>PATH=$PWD/.venv/bin:$PATH tests/selftest.sh path/to/g1_three_fingers.xml</code>.</p>
 <table>
 <thead><tr><th style="width:24%">Step</th><th>Result</th></tr></thead>
 <tbody>
-<tr><td><code>make_schema.py</code> on the real files</td><td>67 columns, 1 free box (PoolBox_01). Every name was found in the MJCF, and the YAML parses.</td></tr>
 <tr><td><code>qa.py</code></td><td>
   <ul>
   <li>The first fake data, with commands outside the left-hand joint ranges, was correctly rejected (exit 1).</li>
@@ -340,21 +338,26 @@ For walker noise (DART), the sidecar logs both the intended command (<code>cmd_*
 <tr><td><code>eval_act.py</code> (stub session)</td><td>The checkpoint and processors load. Every step sends 35 finite actions, and episodes end on <code>done</code>. This works with temporal ensembling and with whole chunks (<code>--ensemble 0</code>).</td></tr>
 </tbody>
 </table>
-<p class="k">The stub stands in for the engine only. The real gRPC agent, the Observer's actual file details and the camera rendering still need a real session (section&nbsp;10).</p>
+<p class="k">The stub stands in for the engine only; the real gRPC agent is still to be written.</p>
+<h3>9.2 Real sessions (30 October 2026)</h3>
+<table>
+<thead><tr><th style="width:24%">Session</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>1 episode</td><td>Succeeded, 34.1&nbsp;s. 1706 rows, sidecar ticks and video frames; ticks exactly 20&nbsp;ms apart; recorded ctrl = the script's command one row later (error 3.5e-8&nbsp;rad). The head camera looked at the wall: the user tilted it down.</td></tr>
+<tr><td>3 episodes, <code>ResetToInitialState</code> only</td><td>Episode 1 started with the robot turned and the box off the belt: keyframe 0 isn't the scene as Play sets it up.</td></tr>
+<tr><td>3 episodes, qpos restored a frame early</td><td>Episodes 1 and 2 started from the same qpos yet failed differently: the walker kept its memory of the previous episode.</td></tr>
+<tr><td>3 episodes, current runner</td><td>3/3 succeeded, every check passes. Episodes 1 and 2 are identical (38.1&nbsp;s, placed 7.6&nbsp;cm from the spot); episode 0 differs slightly because on Play's first frame the box is already falling, and velocities can't be set.</td></tr>
+</tbody>
+</table>
+<p>The reset that works: on the Start frame (before <code>Begin</code>), episode 0 saves the full qpos; each later episode, on its Start frame, switches the rotator and walker off, calls <code>ResetToInitialState</code>, restores that qpos, reseeds the policy PD targets and switches the walker back on, so <code>Begin</code> runs as it does on Play.</p>
 
 <h2>10. Design decisions and limits</h2>
 <ul>
 <li><b>Joint-space actions plus the walker command.</b> These are exactly what the expert executes. No IK at deployment, and the legs stay with the RL walker.</li>
-<li><b>Custom Schema, not Robot Arm mode.</b> Raw <code>ctrl</code> (Robot Arm mode rescales it), named columns, the IMU, and privileged poses kept apart from the policy inputs. LeRobot's <code>action</code> and <code>observation.state</code> are built by the converter instead.</li>
+<li><b>MujocoFull, not Robot Arm mode.</b> Raw <code>ctrl</code> by name (Robot Arm mode rescales it) and the full qpos, with the privileged poses kept apart from the policy inputs. LeRobot's <code>action</code> and <code>observation.state</code> are built by the converter. The IMU is derived from the pelvis orientation because this mode records no sensors.</li>
 <li><b>Writing through the LeRobot API</b> rather than patching the Observer's files in place. It re-encodes the videos, which is slower, but the output is whatever lerobot-train expects, and dropping failed episodes doesn't need episode metadata rewritten by hand.</li>
 <li><b>Measured alignment.</b> The shift between a control tick and its recorded ctrl comes from a probe actuator, per episode, and QA flags any disagreement.</li>
-<li><b>Not verified until a real session exists:</b>
-  <ul>
-  <li>the exact <code>meta/episodes</code> column names the Observer writes (the reader falls back to the documented chunk rule);</li>
-  <li>whether list-valued schema columns arrive as Parquet lists, which the reader assumes;</li>
-  <li>whether the engine's camera frames match the training resize closely enough. Compare one evaluation frame with a dataset frame;</li>
-  <li>that the Observer's camera frame <i>t</i> and data row <i>t</i> come from the same tick. The converter pairs them by index, and the fake data can't test this. Record a short session with a visible event (a hand closing) and check its row against its frame.</li>
-  </ul></li>
+<li><b>Still open:</b> camera frame <i>t</i> and data row <i>t</i> are paired by index (the counts match exactly, but no visible event has been timed against a row); and whether the engine's evaluation frames match the 256&times;256 training frames.</li>
 </ul>
 
 </body>
