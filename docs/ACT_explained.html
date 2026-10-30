@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACT Explained</title>
+<style>
+  :root { --ink:#1a1a1a; --muted:#5b6470; --rule:#d4d8de; --soft:#f4f5f7; --accent:#1f4e79; --warn:#8a3b12; --ok:#2f6b2f;
+          --cam:#dbeafe; --camS:#2563eb; --enc:#ede9fe; --encS:#7c3aed; --dec:#dcfce7; --decS:#16a34a; --vae:#fef3c7; --vaeS:#d97706; --act:#ffe4e6; --actS:#be123c; }
+  @page { size: A4; margin: 16mm 15mm;
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8.5pt "DejaVu Sans", sans-serif; color: #777; }
+    @bottom-left { content: "ACT explained"; font: 8.5pt "DejaVu Sans", sans-serif; color: #777; } }
+  @page :first { @bottom-left { content: none; } @bottom-right { content: none; } }
+  html, body { background:#fff; color:var(--ink); }
+  body { font: 10.5pt/1.5 "DejaVu Serif", "Liberation Serif", Georgia, serif; margin:0 auto; max-width: 900px; padding: 24px 16px; }
+  @media print { body { max-width:none; padding:0; font-size:10pt; } }
+  h1,h2,h3,table,figcaption,.box,code,.k,.meta,.toc,.pill,.big { font-family: "DejaVu Sans","Liberation Sans",Arial,sans-serif; }
+  h1 { font-size: 24pt; margin:0 0 4pt; color:var(--accent); letter-spacing:-0.3pt; }
+  h2 { font-size: 15pt; color:var(--accent); margin: 22pt 0 7pt; padding-bottom:3pt; border-bottom:1.3pt solid var(--accent); break-after:avoid; }
+  h3 { font-size: 11.5pt; margin: 13pt 0 4pt; break-after:avoid; }
+  p { margin:0 0 7pt; } ul,ol { margin:0 0 7pt 18pt; padding:0; } li { margin:0 0 3pt; }
+  code { font-size: 8.8pt; background:var(--soft); padding:0 3pt; border-radius:2pt; }
+  table { border-collapse:collapse; width:100%; font-size:8.8pt; line-height:1.35; margin:5pt 0 10pt; }
+  thead { display: table-header-group; } tr { break-inside: avoid; }
+  th,td { border:0.6pt solid var(--rule); padding:3pt 5pt; vertical-align:top; text-align:left; }
+  th { background:#e9edf2; } td.n,th.n { text-align:right; white-space:nowrap; }
+  figure { margin: 10pt 0 12pt; break-inside: avoid; text-align:center; }
+  figure svg { max-width:100%; height:auto; }
+  figcaption { font-size:8.8pt; color:var(--muted); margin-top:4pt; text-align:left; }
+  .box { border:0.8pt solid var(--rule); background:#fafaf8; padding:7pt 10pt; margin:8pt 0 11pt; font-size:9.6pt; break-inside:avoid; }
+  .box.key { border-color:#9fb7d3; background:#f3f7fc; } .box.warn { border-color:#d9b49c; background:#fdf6f1; } .box.ok { border-color:#a9c9a9; background:#f4faf4; }
+  .box b.t { display:block; margin-bottom:3pt; color:var(--accent); } .box.warn b.t { color:var(--warn); } .box.ok b.t { color:var(--ok); }
+  .meta { font-size:9pt; color:var(--muted); margin-bottom:12pt; }
+  .toc { font-size:9.2pt; line-height:1.6; columns:2; column-gap:20pt; margin:6pt 0 12pt; }
+  .k { font-size:8.8pt; color:var(--muted); }
+  .three { display:grid; grid-template-columns: repeat(3, 1fr); gap:10pt; margin:8pt 0 12pt; }
+  .three .box { margin:0; }
+  .big { font-size: 22pt; font-weight:700; color:var(--accent); line-height:1.1; }
+  .eq { font-family:"DejaVu Serif",serif; text-align:center; font-size:11.5pt; margin:6pt 0 9pt; }
+  sub, sup { font-size: 75%; }
+  @media (max-width: 640px) { .three { grid-template-columns: 1fr; } .toc { columns:1; } }
+</style>
+</head>
+<body>
+
+<h1>ACT, explained</h1>
+<div class="meta">Action Chunking with Transformers (Zhao, Kumar, Levine, Finn, RSS 2023) and what came after it, read from the papers and from the LeRobot implementation your <code>data_pipeline/</code> trains with. 28 October 2026.</div>
+
+<figure>
+<svg viewBox="0 0 860 250" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif">
+<defs><marker id="a0" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#334155"/></marker></defs>
+<rect x="0" y="0" width="860" height="250" fill="#fff"/>
+<g font-size="12">
+  <rect x="10" y="30" width="170" height="190" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="95" y="52" text-anchor="middle" font-weight="700" fill="#1e3a8a">Right now</text>
+  <rect x="30" y="64" width="60" height="44" rx="4" fill="#fff" stroke="#2563eb"/><text x="60" y="90" text-anchor="middle" font-size="10">camera 1</text>
+  <rect x="100" y="64" width="60" height="44" rx="4" fill="#fff" stroke="#2563eb"/><text x="130" y="90" text-anchor="middle" font-size="10">camera 2</text>
+  <rect x="30" y="116" width="60" height="44" rx="4" fill="#fff" stroke="#2563eb"/><text x="60" y="142" text-anchor="middle" font-size="10">camera 3</text>
+  <rect x="100" y="116" width="60" height="44" rx="4" fill="#fff" stroke="#2563eb"/><text x="130" y="142" text-anchor="middle" font-size="10">…</text>
+  <rect x="30" y="170" width="130" height="34" rx="4" fill="#fff" stroke="#2563eb"/><text x="95" y="191" text-anchor="middle" font-size="10">joint positions</text>
+  <path d="M182,125 L248,125" stroke="#334155" stroke-width="2" marker-end="url(#a0)"/>
+  <rect x="250" y="55" width="210" height="140" rx="12" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.8"/>
+  <text x="355" y="98" text-anchor="middle" font-size="18" font-weight="700" fill="#5b21b6">ACT</text>
+  <text x="355" y="122" text-anchor="middle" font-size="11">ResNet per camera</text>
+  <text x="355" y="140" text-anchor="middle" font-size="11">+ transformer</text>
+  <text x="355" y="158" text-anchor="middle" font-size="11">(~80 M parameters)</text>
+  <path d="M462,125 L528,125" stroke="#334155" stroke-width="2" marker-end="url(#a0)"/>
+  <rect x="530" y="40" width="320" height="170" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="690" y="62" text-anchor="middle" font-weight="700" fill="#14532d">The next k actions at once (a "chunk")</text>
+  <g>
+    <rect x="550" y="80" width="26" height="100" fill="#16a34a" opacity="0.95"/>
+    <rect x="580" y="80" width="26" height="100" fill="#16a34a" opacity="0.85"/>
+    <rect x="610" y="80" width="26" height="100" fill="#16a34a" opacity="0.75"/>
+    <rect x="640" y="80" width="26" height="100" fill="#16a34a" opacity="0.65"/>
+    <rect x="670" y="80" width="26" height="100" fill="#16a34a" opacity="0.55"/>
+    <text x="725" y="134" font-size="16">· · ·</text>
+    <rect x="780" y="80" width="26" height="100" fill="#16a34a" opacity="0.3"/>
+  </g>
+  <text x="563" y="198" text-anchor="middle" font-size="10">t</text><text x="593" y="198" text-anchor="middle" font-size="10">t+1</text><text x="623" y="198" text-anchor="middle" font-size="10">t+2</text><text x="793" y="198" text-anchor="middle" font-size="10">t+k−1</text>
+  <text x="690" y="236" text-anchor="middle" font-size="11" fill="#334155">each column = every joint target · k = 50–100</text>
+</g>
+</svg>
+<figcaption><b>The whole idea in one picture.</b> A normal imitation policy looks at the robot and outputs <i>one</i> action. ACT looks once and outputs the next <b>k actions</b> (about 1–2&nbsp;s of motion). Three things make that work: chunking (section&nbsp;2), temporal ensembling (section&nbsp;3) and a CVAE to absorb messy human demonstrations (section&nbsp;4).</figcaption>
+</figure>
+
+<div class="three">
+  <div class="box key"><div class="big">1% → 44%</div>Success going from predicting 1 action per step to a chunk of 100, averaged over four simulated settings with no other change (ACT paper, Fig.&nbsp;7a).</div>
+  <div class="box key"><div class="big">50 demos</div>Enough for ACT to reach 84–96% success on four of six real bimanual tasks, like opening a cup or slotting a battery: about 10–20 minutes of data per task.</div>
+  <div class="box key"><div class="big">35% → 2%</div>Success on <i>human</i> demonstrations without the CVAE. On <i>scripted</i> demonstrations the CVAE makes almost no difference, which matters for your G1 data.</div>
+</div>
+
+<div class="toc">
+<div>1. The problem ACT solves</div>
+<div>2. Idea 1: action chunking</div>
+<div>3. Idea 2: temporal ensembling</div>
+<div>4. Idea 3: the CVAE ("style" variable)</div>
+<div>5. The network, layer by layer</div>
+<div>6. Training: loss, data, settings</div>
+<div>7. Running it on a robot</div>
+<div>8. What the experiments show</div>
+<div>9. What came after ACT</div>
+<div>10. Where ACT is weak</div>
+<div>11. What this means for the G1 box task</div>
+<div>12. Glossary and sources</div>
+</div>
+
+<h2>1. The problem ACT solves</h2>
+<p><b>Behaviour cloning</b> is the simplest way to learn from demonstrations. Record what an expert sees and does, then train a network to map "what it sees" → "what it does". It's supervised learning, with the expert's action as the label.</p>
+<p>It has one famous flaw: <b>compounding error</b>.</p>
+<ul>
+<li>The network is never perfect, so each step it is slightly off.</li>
+<li>Being slightly off puts the robot in a state the expert never visited, where the network is even less accurate.</li>
+<li>The errors snowball. For naive behaviour cloning the expected error grows with the <i>square</i> of the number of decisions (Ross &amp; Bagnell, 2010).</li>
+</ul>
+<p>Fine manipulation makes this worse: a few millimetres of drift is the difference between threading a tie and missing it.</p>
+<figure>
+<svg viewBox="0 0 860 230" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<rect width="860" height="230" fill="#fff"/>
+<g transform="translate(20,20)">
+  <text x="0" y="0" font-weight="700" font-size="12">One action per step: T decisions, each can drift</text>
+  <path d="M10,150 C120,140 220,110 390,40" stroke="#16a34a" stroke-width="3" fill="none"/>
+  <text x="300" y="45" fill="#16a34a" font-weight="700">expert</text>
+  <path d="M10,150 L40,149 L70,150 L100,152 L130,156 L160,163 L190,172 L220,183 L250,196 L280,206" stroke="#be123c" stroke-width="2" fill="none" stroke-dasharray="1,0"/>
+  <g fill="#be123c"><circle cx="10" cy="150" r="3"/><circle cx="40" cy="149" r="3"/><circle cx="70" cy="150" r="3"/><circle cx="100" cy="152" r="3"/><circle cx="130" cy="156" r="3"/><circle cx="160" cy="163" r="3"/><circle cx="190" cy="172" r="3"/><circle cx="220" cy="183" r="3"/><circle cx="250" cy="196" r="3"/><circle cx="280" cy="206" r="3"/></g>
+  <text x="230" y="168" fill="#be123c" font-weight="700">policy drifts away</text>
+  <text x="0" y="200" fill="#555">every dot = a new decision from a slightly wrong state</text>
+</g>
+<g transform="translate(450,20)">
+  <text x="0" y="0" font-weight="700" font-size="12">Chunks of k actions: T/k decisions</text>
+  <path d="M10,150 C120,140 220,110 390,40" stroke="#16a34a" stroke-width="3" fill="none"/>
+  <text x="300" y="45" fill="#16a34a" font-weight="700">expert</text>
+  <path d="M10,150 C60,145 100,136 135,126" stroke="#be123c" stroke-width="2.5" fill="none"/>
+  <path d="M135,126 C180,113 220,98 262,84" stroke="#be123c" stroke-width="2.5" fill="none"/>
+  <path d="M262,84 C300,72 340,60 380,48" stroke="#be123c" stroke-width="2.5" fill="none"/>
+  <g fill="#be123c"><circle cx="10" cy="150" r="4"/><circle cx="135" cy="126" r="4"/><circle cx="262" cy="84" r="4"/></g>
+  <text x="140" y="148" fill="#be123c" font-weight="700">few decisions, stays close</text>
+  <text x="0" y="200" fill="#555">each dot plans a whole smooth segment, like the expert did</text>
+</g>
+</svg>
+<figcaption><b>Why chunking helps.</b> Predicting k actions per query cuts the number of decisions (the "effective horizon") by a factor of k, so there are far fewer chances to drift. It also lets the network copy the shape of whole motions, including pauses, which a one-step policy finds very hard to reproduce.</figcaption>
+</figure>
+<p>A second, subtler problem is that human demonstrations are <b>not consistent</b>. Two demos of the same moment can differ: the person paused, or went left of the object instead of right. A network trained with a plain regression loss averages those, and the average of "go left" and "go right" can be "go straight into the object". ACT's CVAE (section&nbsp;4) is there for that.</p>
+
+<h2>2. Idea 1: action chunking</h2>
+<p>Instead of learning π(a<sub>t</sub> | s<sub>t</sub>), ACT learns π(a<sub>t</sub>, a<sub>t+1</sub>, …, a<sub>t+k−1</sub> | s<sub>t</sub>): from one look at the world, the next k target joint positions.</p>
+<ul>
+<li>In the original paper k = 100 at 50&nbsp;Hz, i.e. 2&nbsp;s of motion per prediction. Mobile ALOHA used k = 45; HumanPlus and ALOHA Unleashed used k = 50.</li>
+<li>The simplest way to run it: predict a chunk, play all k actions open-loop, look again, predict the next chunk. LeRobot calls the number of actions played per prediction <code>n_action_steps</code>.</li>
+<li>The catch: between predictions the robot is blind. If the box gets bumped halfway through a chunk, the robot won't react until the next one. Section&nbsp;3 fixes this.</li>
+</ul>
+<figure>
+<svg viewBox="0 0 860 150" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<rect width="860" height="150" fill="#fff"/>
+<text x="10" y="18" font-weight="700" font-size="12">Plain chunking (n_action_steps = k): look, play k actions blind, look again</text>
+<g transform="translate(10,32)">
+  <line x1="0" y1="80" x2="840" y2="80" stroke="#94a3b8"/>
+  <rect x="0" y="40" width="270" height="28" rx="4" fill="#dcfce7" stroke="#16a34a"/><text x="135" y="58" text-anchor="middle">chunk 1: actions t … t+k−1</text>
+  <rect x="280" y="40" width="270" height="28" rx="4" fill="#dcfce7" stroke="#16a34a"/><text x="415" y="58" text-anchor="middle">chunk 2</text>
+  <rect x="560" y="40" width="270" height="28" rx="4" fill="#dcfce7" stroke="#16a34a"/><text x="695" y="58" text-anchor="middle">chunk 3</text>
+  <g fill="#7c3aed"><path d="M0,20 l6,-12 l6,12 z"/><path d="M280,20 l6,-12 l6,12 z"/><path d="M560,20 l6,-12 l6,12 z"/></g>
+  <text x="18" y="18" fill="#5b21b6">look (query the network)</text>
+  <text x="300" y="18" fill="#5b21b6">look</text><text x="580" y="18" fill="#5b21b6">look</text>
+  <text x="0" y="100" fill="#555">time →  the robot only reacts to new observations every k steps; the boundaries between chunks can jump</text>
+</g>
+</svg>
+</figure>
+
+<h2>3. Idea 2: temporal ensembling</h2>
+<p>The fix: <b>query the network every step anyway</b>, and keep all the chunks. At any moment several chunks overlap, and each one has its own guess for "what to do right now". ACT plays a <b>weighted average</b> of those guesses:</p>
+<div class="eq">a<sub>t</sub> = Σ<sub>i</sub> w<sub>i</sub> · a<sub>t</sub><sup>(i)</sup> / Σ<sub>i</sub> w<sub>i</sub>,  with  w<sub>i</sub> = exp(−m · i)</div>
+<ul>
+<li>i = 0 is the <b>oldest</b> chunk that still covers time t. With m &gt; 0, the oldest prediction gets the <i>largest</i> weight. That sounds backwards, but it keeps the motion consistent: a fresh prediction nudges the plan rather than overriding it.</li>
+<li>The paper and LeRobot use m = 0.01, a very gentle decay: a guess made 50 steps ago still has weight e<sup>−0.5</sup> ≈ 0.61.</li>
+<li>It costs nothing in training. At run time it means one network call per control step (10&nbsp;ms per call on the paper's GPU), and in LeRobot it requires <code>n_action_steps = 1</code>.</li>
+<li>It averages predictions <i>for the same time step</i>, so it isn't blurring motion over time like a low-pass filter. It removes the jumps at chunk boundaries.</li>
+</ul>
+<figure>
+<svg viewBox="0 0 860 260" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<rect width="860" height="260" fill="#fff"/>
+<text x="10" y="18" font-weight="700" font-size="12">Temporal ensembling: a new chunk every step, all guesses for "now" averaged</text>
+<g transform="translate(60,34)">
+  <line x1="400" y1="-6" x2="400" y2="186" stroke="#be123c" stroke-width="2" stroke-dasharray="5,4"/>
+  <text x="406" y="6" fill="#be123c" font-weight="700">now (time t)</text>
+  <g>
+    <rect x="160" y="20" width="400" height="22" rx="3" fill="#dcfce7" stroke="#16a34a"/><text x="150" y="35" text-anchor="end">chunk from t−4 (oldest)</text>
+    <rect x="220" y="50" width="400" height="22" rx="3" fill="#dcfce7" stroke="#16a34a" opacity="0.9"/><text x="210" y="65" text-anchor="end">from t−3</text>
+    <rect x="280" y="80" width="400" height="22" rx="3" fill="#dcfce7" stroke="#16a34a" opacity="0.8"/><text x="270" y="95" text-anchor="end">from t−2</text>
+    <rect x="340" y="110" width="400" height="22" rx="3" fill="#dcfce7" stroke="#16a34a" opacity="0.7"/><text x="330" y="125" text-anchor="end">from t−1</text>
+    <rect x="400" y="140" width="400" height="22" rx="3" fill="#dcfce7" stroke="#16a34a" opacity="0.6"/><text x="390" y="155" text-anchor="end">from t (newest)</text>
+  </g>
+  <g fill="#be123c">
+    <rect x="394" y="22" width="12" height="18"/><rect x="394" y="52" width="12" height="18"/><rect x="394" y="82" width="12" height="18"/><rect x="394" y="112" width="12" height="18"/><rect x="394" y="142" width="12" height="18"/>
+  </g>
+  <text x="615" y="35" fill="#334155">w₀ = 1.00</text><text x="675" y="65" fill="#334155">w₁ = 0.99</text><text x="735" y="95" fill="#334155">…</text>
+  <text x="0" y="210" fill="#555">The red cells are five guesses for the action at time t. ACT plays their average, weighted exp(−0.01·i) from the oldest (i = 0).</text>
+</g>
+</svg>
+<figcaption><b>Temporal ensembling</b> keeps the robot reacting every step (a new chunk always enters the average) while staying smooth (old chunks dominate). In the ACT paper it added about 3.3 percentage points of success.</figcaption>
+</figure>
+<div class="box warn"><b class="t">Later work found a catch</b>Averaging only makes sense if the guesses agree. When two chunks commit to <i>different</i> strategies (one goes left of the cup, one goes right), their average is a strategy nobody demonstrated.
+<ul>
+<li><b>Bidirectional Decoding</b> (2024) found ensembling hurt 2 of 7 tasks, and that the best decay rate changes from task to task.</li>
+<li><b>Real-Time Chunking</b> (Physical Intelligence, 2025) saw it oscillate badly enough on a real robot to trigger the protective stop.</li>
+</ul>
+This is a bigger problem for multimodal policies (diffusion) than for ACT, whose test-time output is deterministic (section&nbsp;4).</div>
+
+<h2>4. Idea 3: the CVAE ("style" variable)</h2>
+<p>Human demonstrations vary for reasons the camera can't see: the person hesitated, or picked another route. A regression network trained on them averages those choices and ends up hesitant or wrong. ACT gives the network a hidden variable <b>z</b> to put that variation into. That is the <b>conditional variational autoencoder</b> (CVAE).</p>
+<figure>
+<svg viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<defs><marker id="a4" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#334155"/></marker></defs>
+<rect width="860" height="330" fill="#fff"/>
+<text x="10" y="20" font-weight="700" font-size="12">Training: the CVAE encoder sees the answer and compresses its "style" into z</text>
+<g transform="translate(10,34)">
+  <rect x="0" y="10" width="180" height="120" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
+  <text x="90" y="30" text-anchor="middle" font-weight="700" fill="#92400e">CVAE encoder</text>
+  <text x="90" y="48" text-anchor="middle">(4 transformer layers)</text>
+  <text x="12" y="72">[CLS] token</text>
+  <text x="12" y="90">current joint positions</text>
+  <text x="12" y="108">the expert's next k actions</text>
+  <text x="12" y="124" fill="#92400e" font-size="10">no images (faster)</text>
+  <path d="M182,70 L238,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a4)"/>
+  <rect x="240" y="40" width="130" height="60" rx="8" fill="#fff" stroke="#d97706" stroke-width="1.5"/>
+  <text x="305" y="64" text-anchor="middle" font-weight="700">μ, σ</text>
+  <text x="305" y="82" text-anchor="middle">Gaussian over z</text>
+  <path d="M372,70 L418,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a4)"/>
+  <circle cx="445" cy="70" r="24" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/><text x="445" y="75" text-anchor="middle" font-weight="700">z</text>
+  <text x="445" y="112" text-anchor="middle" font-size="10">32 numbers</text>
+  <text x="445" y="126" text-anchor="middle" font-size="10">sampled μ + σ·ε</text>
+  <path d="M470,70 L528,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a4)"/>
+  <rect x="530" y="10" width="200" height="120" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="630" y="34" text-anchor="middle" font-weight="700" fill="#5b21b6">policy (CVAE decoder)</text>
+  <text x="630" y="56" text-anchor="middle">z + images + joints</text>
+  <text x="630" y="74" text-anchor="middle">→ predicted k actions</text>
+  <text x="630" y="104" text-anchor="middle" fill="#5b21b6" font-size="10">section 5 shows inside</text>
+  <path d="M732,70 L790,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a4)"/>
+  <text x="796" y="66" font-weight="700">loss</text><text x="796" y="82" font-size="10">L1 + 10·KL</text>
+</g>
+<text x="10" y="200" font-weight="700" font-size="12">Running on the robot: no answer to encode, so z = 0 (the middle of the prior)</text>
+<g transform="translate(10,214)">
+  <rect x="0" y="10" width="180" height="70" rx="8" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="5,4"/>
+  <text x="90" y="40" text-anchor="middle" fill="#64748b">CVAE encoder</text><text x="90" y="58" text-anchor="middle" fill="#64748b">thrown away</text>
+  <circle cx="445" cy="45" r="24" fill="#fff" stroke="#d97706" stroke-width="1.5"/><text x="445" y="50" text-anchor="middle" font-weight="700">z = 0</text>
+  <path d="M470,45 L528,45" stroke="#334155" stroke-width="1.6" marker-end="url(#a4)"/>
+  <rect x="530" y="10" width="200" height="70" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="630" y="40" text-anchor="middle" font-weight="700" fill="#5b21b6">policy</text><text x="630" y="58" text-anchor="middle">images + joints → k actions</text>
+  <path d="M732,45 L790,45" stroke="#334155" stroke-width="1.6" marker-end="url(#a4)"/><text x="796" y="50" font-weight="700">robot</text>
+</g>
+</svg>
+<figcaption><b>The CVAE in two halves.</b> In training, a small encoder looks at the true action chunk and summarises "how this demo did it" as z. The policy learns to use that z plus the observation to reconstruct the chunk. The KL term keeps z close to a standard Gaussian, so z = 0 is a typical, average style. At run time there's nothing to encode, so the policy always runs with z = 0, which makes ACT deterministic at test time.</figcaption>
+</figure>
+<ul>
+<li><b>Loss:</b> L = L1(predicted chunk, true chunk) + β · KL(q(z) ‖ N(0, I)), with β = 10. The paper found L1 more precise than L2. LeRobot also uses L1, and masks out padded steps past the end of an episode.</li>
+<li><b>What the KL weight does:</b> with a large β, z carries little information and the policy has to rely on the observation. With a small β, the policy could lean on z to cheat during training, then fail at run time when z = 0.</li>
+<li><b>When it matters:</b> ACT's own ablation trained two simulated tasks with and without the CVAE.
+  <ul>
+  <li>On <b>scripted</b> demonstrations, which are perfectly consistent, it made almost no difference.</li>
+  <li>On <b>human</b> demonstrations, success fell from 35.3% to 2% without it.</li>
+  </ul></li>
+</ul>
+
+<h2>5. The network, layer by layer</h2>
+<figure>
+<svg viewBox="0 0 860 470" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<defs><marker id="a5" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#334155"/></marker></defs>
+<rect width="860" height="470" fill="#fff"/>
+<g>
+  <text x="95" y="22" text-anchor="middle" font-weight="700">inputs</text>
+  <rect x="10" y="34" width="170" height="40" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="95" y="51" text-anchor="middle" font-weight="700">camera image</text><text x="95" y="66" text-anchor="middle" font-size="10">480 × 640 RGB, one per camera</text>
+  <rect x="10" y="84" width="170" height="40" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="95" y="101" text-anchor="middle" font-weight="700">joint positions</text><text x="95" y="116" text-anchor="middle" font-size="10">14 numbers (two 7-DoF arms)</text>
+  <rect x="10" y="134" width="170" height="40" rx="6" fill="#fef3c7" stroke="#d97706"/><text x="95" y="151" text-anchor="middle" font-weight="700">style z</text><text x="95" y="166" text-anchor="middle" font-size="10">32 numbers (0 at test time)</text>
+
+  <path d="M182,54 L218,54" stroke="#334155" stroke-width="1.5" marker-end="url(#a5)"/>
+  <rect x="220" y="30" width="170" height="48" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="305" y="49" text-anchor="middle" font-weight="700">ResNet-18</text><text x="305" y="66" text-anchor="middle" font-size="10">→ 15 × 20 × 512 feature map</text>
+  <path d="M392,54 L428,54" stroke="#334155" stroke-width="1.5" marker-end="url(#a5)"/>
+  <rect x="430" y="30" width="190" height="48" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="525" y="49" text-anchor="middle" font-weight="700">flatten + 2D position code</text><text x="525" y="66" text-anchor="middle" font-size="10">300 tokens × 512 per camera</text>
+  <path d="M182,104 L428,104" stroke="#334155" stroke-width="1.5" marker-end="url(#a5)"/>
+  <rect x="430" y="88" width="190" height="34" rx="6" fill="#dbeafe" stroke="#2563eb"/><text x="525" y="109" text-anchor="middle">linear → 1 token × 512</text>
+  <path d="M182,154 L428,154" stroke="#334155" stroke-width="1.5" marker-end="url(#a5)"/>
+  <rect x="430" y="138" width="190" height="34" rx="6" fill="#fef3c7" stroke="#d97706"/><text x="525" y="159" text-anchor="middle">linear → 1 token × 512</text>
+
+  <rect x="660" y="30" width="190" height="142" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="755" y="52" text-anchor="middle" font-weight="700">token sequence</text>
+  <text x="755" y="76" text-anchor="middle">4 cameras × 300 = 1200</text>
+  <text x="755" y="94" text-anchor="middle">+ 1 joint token</text>
+  <text x="755" y="112" text-anchor="middle">+ 1 z token</text>
+  <text x="755" y="136" text-anchor="middle" font-weight="700">= 1202 tokens × 512</text>
+  <path d="M622,104 L658,104" stroke="#334155" stroke-width="1.5" marker-end="url(#a5)"/>
+
+  <path d="M755,174 L755,214" stroke="#334155" stroke-width="1.5" marker-end="url(#a5)"/>
+  <rect x="560" y="216" width="290" height="70" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="705" y="240" text-anchor="middle" font-weight="700" fill="#5b21b6">transformer encoder</text>
+  <text x="705" y="258" text-anchor="middle">4 layers · 8 heads · width 512 · FFN 3200</text>
+  <text x="705" y="276" text-anchor="middle" font-size="10">every token attends to every other (all cameras + joints)</text>
+
+  <rect x="10" y="216" width="250" height="70" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="135" y="240" text-anchor="middle" font-weight="700" fill="#14532d">k query tokens</text>
+  <text x="135" y="258" text-anchor="middle">one per future time step (k × 512)</text>
+  <text x="135" y="276" text-anchor="middle" font-size="10">"what should happen at step t + j?"</text>
+
+  <rect x="290" y="320" width="300" height="70" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="440" y="344" text-anchor="middle" font-weight="700" fill="#5b21b6">transformer decoder</text>
+  <text x="440" y="362" text-anchor="middle">queries cross-attend to the encoder's 1202 tokens</text>
+  <text x="440" y="380" text-anchor="middle" font-size="10">paper: 7 layers · LeRobot: 1 (matches the original code)</text>
+  <path d="M135,288 C135,330 230,355 288,355" stroke="#334155" stroke-width="1.5" fill="none" marker-end="url(#a5)"/>
+  <path d="M705,288 C705,330 650,355 592,355" stroke="#334155" stroke-width="1.5" fill="none" marker-end="url(#a5)"/>
+  <path d="M440,392 L440,416" stroke="#334155" stroke-width="1.5" marker-end="url(#a5)"/>
+  <rect x="300" y="418" width="280" height="40" rx="8" fill="#ffe4e6" stroke="#be123c" stroke-width="1.5"/>
+  <text x="440" y="436" text-anchor="middle" font-weight="700" fill="#9f1239">linear head → k × 14 actions</text>
+  <text x="440" y="451" text-anchor="middle" font-size="10">target joint positions for the next k steps</text>
+</g>
+</svg>
+<figcaption><b>ACT's policy network</b>, with the paper's sizes. The design is borrowed from <b>DETR</b> (Carion et al., 2020), which detects objects by sending a fixed set of "query" tokens into a transformer decoder. ACT does the same with k queries, one per future time step, so the decoder fills in all k actions in parallel, not one after another. About 80&nbsp;M parameters; inference takes about 10&nbsp;ms.</figcaption>
+</figure>
+<table>
+<thead><tr><th style="width:28%">Piece</th><th>What it does, in plain words</th></tr></thead>
+<tbody>
+<tr><td>ResNet-18 per camera</td><td>Turns each image into a 15×20 grid of 512-number feature vectors, "what is in each patch". LeRobot starts it from ImageNet weights (<code>ResNet18_Weights.IMAGENET1K_V1</code>).</td></tr>
+<tr><td>2D sinusoidal position code</td><td>Tells the transformer <i>where</i> in the image each patch is, since attention by itself has no notion of position.</td></tr>
+<tr><td>Transformer encoder</td><td>Mixes everything: every image patch from every camera, the joint state and z can all look at each other. This is where the "the box is here, my hand is there" reasoning lives.</td></tr>
+<tr><td>Query tokens + decoder</td><td>k learned vectors, one per future step. Each asks the encoded scene "what should I do at step j?" through cross-attention.</td></tr>
+<tr><td>Linear head</td><td>Maps each of the k answers to an action vector (14 numbers on ALOHA).</td></tr>
+</tbody>
+</table>
+
+<h2>6. Training: loss, data, settings</h2>
+<table>
+<thead><tr><th style="width:26%">Setting</th><th style="width:19%">ACT paper</th><th style="width:22%">LeRobot default</th><th>Your <code>train_act.sh</code></th></tr></thead>
+<tbody>
+<tr><td>Chunk size k</td><td>100 (2&nbsp;s at 50&nbsp;Hz)</td><td>100</td><td>50 (1&nbsp;s at 50&nbsp;Hz)</td></tr>
+<tr><td>Actions played per prediction</td><td>1, with ensembling</td><td>100 (no ensembling)</td><td>50 in training; eval ensembles with 1</td></tr>
+<tr><td>Ensemble coefficient m</td><td>0.01</td><td>off</td><td>0.01 (<code>eval_act.py --ensemble</code>)</td></tr>
+<tr><td>Width / heads / FFN</td><td>512 / 8 / 3200</td><td>512 / 8 / 3200</td><td>same</td></tr>
+<tr><td>Encoder / decoder layers</td><td>4 / 7 (only 1 actually used, a known bug)</td><td>4 / 1</td><td>same</td></tr>
+<tr><td>Latent z / CVAE encoder layers</td><td>32 / 4</td><td>32 / 4</td><td>same</td></tr>
+<tr><td>KL weight β</td><td>10</td><td>10</td><td>10</td></tr>
+<tr><td>Learning rate / batch</td><td>1e-5 / 8</td><td>1e-5 / 8</td><td>1e-5 / 8</td></tr>
+<tr><td>Dropout / weight decay</td><td>0.1 / not stated</td><td>0.1 / 1e-4</td><td>same</td></tr>
+<tr><td>Normalization</td><td>mean / std</td><td>mean / std for images, state and actions</td><td>same</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>Data in the paper:</b>
+  <ul>
+  <li>50 demonstrations per real task (100 for the hardest), each 8–14&nbsp;s, 400–700 steps at 50&nbsp;Hz, about 10–20 minutes of data per task.</li>
+  <li>Four 480×640 cameras: top, front and two wrists.</li>
+  <li>Actions are <b>absolute target joint positions</b> taken from the leader arms. Delta (relative) joint actions worked worse.</li>
+  </ul></li>
+<li><b>Compute:</b> about 5 hours on one 11&nbsp;GB RTX 2080 Ti per task. The checkpoint with the lowest validation loss was used.</li>
+<li><b>Each training sample</b> is one time step t of one episode. The input is the observation at t; the target is the actions from t to t+k−1. Near the end of an episode the missing actions are padded and masked out of the loss.</li>
+</ul>
+
+<h2>7. Running it on a robot</h2>
+<figure>
+<svg viewBox="0 0 860 200" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<defs><marker id="a7" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#334155"/></marker></defs>
+<rect width="860" height="200" fill="#fff"/>
+<g transform="translate(10,20)">
+  <rect x="0" y="40" width="150" height="60" rx="8" fill="#dbeafe" stroke="#2563eb"/><text x="75" y="66" text-anchor="middle" font-weight="700">observe</text><text x="75" y="84" text-anchor="middle" font-size="10">cameras + joints</text>
+  <path d="M152,70 L188,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a7)"/>
+  <rect x="190" y="40" width="150" height="60" rx="8" fill="#f1f5f9" stroke="#64748b"/><text x="265" y="66" text-anchor="middle" font-weight="700">normalize</text><text x="265" y="84" text-anchor="middle" font-size="10">dataset mean / std</text>
+  <path d="M342,70 L378,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a7)"/>
+  <rect x="380" y="40" width="150" height="60" rx="8" fill="#ede9fe" stroke="#7c3aed"/><text x="455" y="66" text-anchor="middle" font-weight="700">ACT, z = 0</text><text x="455" y="84" text-anchor="middle" font-size="10">→ chunk of k actions</text>
+  <path d="M532,70 L568,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a7)"/>
+  <rect x="570" y="40" width="150" height="60" rx="8" fill="#dcfce7" stroke="#16a34a"/><text x="645" y="66" text-anchor="middle" font-weight="700">ensemble or queue</text><text x="645" y="84" text-anchor="middle" font-size="10">→ one action for now</text>
+  <path d="M722,70 L758,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a7)"/>
+  <rect x="760" y="40" width="80" height="60" rx="8" fill="#ffe4e6" stroke="#be123c"/><text x="800" y="66" text-anchor="middle" font-weight="700">robot</text><text x="800" y="84" text-anchor="middle" font-size="10">PD tracks it</text>
+  <path d="M800,102 C800,150 75,150 75,104" stroke="#334155" stroke-width="1.4" fill="none" stroke-dasharray="5,4" marker-end="url(#a7)"/>
+  <text x="430" y="165" text-anchor="middle" fill="#555">repeat every control step (50 Hz); with ensembling the network runs every step, with a queue only every n_action_steps</text>
+</g>
+</svg>
+</figure>
+<ul>
+<li><b>Two ways to play a chunk:</b>
+  <ul>
+  <li>a <b>queue</b>: play <code>n_action_steps</code> actions, then predict again. Cheaper, but blind in between, with possible jumps at the boundaries.</li>
+  <li><b>temporal ensembling</b>: predict every step and average. Smoother and more reactive, but one network call per step.</li>
+  </ul></li>
+<li><b>The actions are targets, not torques.</b> A low-level controller tracks them: the motors' PD loop on ALOHA, an RL tracking policy on HumanPlus. The policy never has to learn balance or motor dynamics.</li>
+<li><b>Latency:</b> the network has to finish inside the control period. ACT takes about 10&nbsp;ms, which fits 50&nbsp;Hz. Big models (hundreds of ms) need asynchronous tricks such as real-time chunking (section&nbsp;9).</li>
+</ul>
+
+<h2>8. What the experiments show</h2>
+<h3>8.1 Success rates (final stage of each task, %)</h3>
+<table>
+<thead><tr><th>Task</th><th>Data</th><th class="n">BC-ConvMLP</th><th class="n">BeT</th><th class="n">RT-1</th><th class="n">VINN</th><th class="n">ACT</th></tr></thead>
+<tbody>
+<tr><td>Cube transfer (sim)</td><td>scripted / human</td><td class="n">1 / 0</td><td class="n">27 / 1</td><td class="n">2 / 0</td><td class="n">1 / 0</td><td class="n"><b>86 / 50</b></td></tr>
+<tr><td>Bimanual insertion (sim)</td><td>scripted / human</td><td class="n">1 / 0</td><td class="n">3 / 0</td><td class="n">1 / 0</td><td class="n">6 / 0</td><td class="n"><b>32 / 20</b></td></tr>
+<tr><td>Slide ziploc (real)</td><td>50 human demos</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n"><b>88</b></td></tr>
+<tr><td>Slot battery (real)</td><td>50 human demos</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n"><b>96</b></td></tr>
+<tr><td>Open cup / put on shoe (real)</td><td>50 human demos</td><td class="n">–</td><td class="n">0 / 0</td><td class="n">–</td><td class="n">–</td><td class="n"><b>84 / 92</b></td></tr>
+<tr><td>Thread velcro / prep tape (real)</td><td>100 / 50 demos</td><td class="n">–</td><td class="n">0 / 0</td><td class="n">–</td><td class="n">–</td><td class="n"><b>20 / 64</b></td></tr>
+</tbody>
+</table>
+<p class="k">Real tasks: 25 trials, 1 seed. Simulated: 50 trials, 3 seeds. Some baseline numbers are read from multi-stage tables.</p>
+<h3>8.2 Ablations: what each idea is worth</h3>
+<figure>
+<svg viewBox="0 0 860 230" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<rect width="860" height="230" fill="#fff"/>
+<g transform="translate(40,20)">
+  <text x="0" y="0" font-weight="700" font-size="12">Chunk size k (ACT, no ensembling, average of 4 settings)</text>
+  <line x1="0" y1="170" x2="380" y2="170" stroke="#334155"/><line x1="0" y1="20" x2="0" y2="170" stroke="#334155"/>
+  <text x="-6" y="174" text-anchor="end" font-size="10">0%</text><text x="-6" y="45" text-anchor="end" font-size="10">44%</text>
+  <line x1="0" y1="41" x2="380" y2="41" stroke="#e2e8f0" stroke-dasharray="3,3"/>
+  <g fill="#7c3aed">
+    <rect x="20" y="167" width="40" height="3"/><text x="40" y="190" text-anchor="middle" font-size="10">k=1</text><text x="40" y="160" text-anchor="middle" font-size="10">1%</text>
+    <rect x="130" y="41" width="40" height="129"/><text x="150" y="190" text-anchor="middle" font-size="10">k=100</text><text x="150" y="35" text-anchor="middle" font-size="10">44%</text>
+    <rect x="240" y="60" width="40" height="110" opacity="0.6"/><text x="260" y="190" text-anchor="middle" font-size="10">k=200, 400</text><text x="260" y="54" text-anchor="middle" font-size="10">a bit lower</text>
+  </g>
+  <text x="0" y="206" fill="#555">Too long also hurts: the robot sees too rarely.</text>
+</g>
+<g transform="translate(470,20)">
+  <text x="0" y="0" font-weight="700" font-size="12">CVAE on / off (2 simulated tasks)</text>
+  <line x1="0" y1="170" x2="360" y2="170" stroke="#334155"/>
+  <g>
+    <rect x="20" y="70" width="50" height="100" fill="#16a34a"/><rect x="75" y="72" width="50" height="98" fill="#be123c" opacity="0.7"/>
+    <text x="72" y="190" text-anchor="middle" font-size="10">scripted demos</text><text x="72" y="62" text-anchor="middle" font-size="10">≈ same</text>
+    <rect x="200" y="80" width="50" height="90" fill="#16a34a"/><rect x="255" y="165" width="50" height="5" fill="#be123c" opacity="0.7"/>
+    <text x="252" y="190" text-anchor="middle" font-size="10">human demos</text><text x="225" y="74" text-anchor="middle" font-size="10">35.3%</text><text x="280" y="158" text-anchor="middle" font-size="10">2%</text>
+  </g>
+  <rect x="20" y="200" width="12" height="10" fill="#16a34a"/><text x="38" y="209" font-size="10">with CVAE</text>
+  <rect x="120" y="200" width="12" height="10" fill="#be123c" opacity="0.7"/><text x="138" y="209" font-size="10">without</text>
+</g>
+</svg>
+<figcaption>Other ablations: temporal ensembling added +3.3 points for ACT (and +4 for a plain MLP baseline). Chunking also helps other policies: it improved BC-ConvMLP and VINN too. In a user study, teleoperating at 5&nbsp;Hz instead of 50&nbsp;Hz made tasks 62% slower, which is why the data and the policy run at 50&nbsp;Hz.</figcaption>
+</figure>
+
+<h2>9. What came after ACT</h2>
+<table>
+<thead><tr><th style="width:18%">Work</th><th style="width:40%">What changed</th><th>Lesson for you</th></tr></thead>
+<tbody>
+<tr><td><b>Mobile ALOHA</b> (Fu, Zhao, Finn, 2024)</td><td>ALOHA on a wheeled base. The action becomes <b>16 numbers</b>: 14 arm joint targets + the base's linear and angular velocity. Three cameras, 50 demos per task, chunk 45. <b>Co-training</b> with 825 static ALOHA demos (50/50 sampling, base action set to 0 for static data) raised ACT from 0 → 95% on Call Elevator and 50 → 95% on Wipe Wine. A base-delay trick: play the first k−d arm actions with the <i>last</i> k−d base actions.</td><td>Putting a <b>velocity command for the base inside the action vector</b> works, which is exactly what your 35-value action does with the walker command. Open-loop replay scored 0%, so closed loop is essential.</td></tr>
+<tr><td><b>HumanPlus / HIT</b> (Fu et al., 2024)</td><td>A humanoid. A low-level <b>RL policy</b> (50&nbsp;Hz) handles balance and tracks body targets. A decoder-only ACT variant (HIT) predicts chunks of 50 target poses at 25&nbsp;Hz from two head cameras. It adds a loss that predicts <i>future image features</i>, so the policy can't ignore vision. Plain ACT got stuck on 2 of 6 tasks: 0% on typing and on wearing a shoe, against HIT's 80% and 60%.</td><td>Closest to your setup: imitation on top of an RL walker. Watch for <b>over-reliance on proprioception</b>: ACT can learn "joint angles → next angles" and ignore the cameras.</td></tr>
+<tr><td><b>ALOHA Unleashed</b> (Zhao et al., 2024)</td><td>The same group switched to a <b>diffusion</b> transformer, chunk 50, with 26,000+ demonstrations from 35 operators. On a messy shirt-hanging task: diffusion 70% against ACT 25%. On small simulated data, ACT was easier to tune and sometimes better.</td><td>ACT is the right tool for <b>tens to hundreds of consistent demos</b>. Huge, varied human datasets favour diffusion or flow policies.</td></tr>
+<tr><td><b>Bidirectional Decoding</b> (Liu et al., 2024)</td><td>Analyses the chunk-length trade-off. Long chunks help in deterministic settings; short chunks help when things are noisy or get disturbed. Ensembling and per-step resampling can average or flip between strategies. Their fix samples several chunks and picks the one consistent with the last chunk and closest to a strong model.</td><td>Your scripted, deterministic expert is the case where long chunks are safe. If the policy dithers between two strategies, this is the known failure.</td></tr>
+<tr><td><b>Real-Time Chunking</b> (Black et al., 2025)</td><td>For big, slow policies: compute the next chunk while the current one plays, with the actions that will run during the computation frozen ("inpainting"). This removes pauses and jumps. Temporal ensembling oscillated badly on their real robot.</td><td>Only needed if inference becomes slow. ACT at about 10&nbsp;ms doesn't need it.</td></tr>
+<tr><td><b>Diffusion Policy</b> (Chi et al., 2023)</td><td>The main alternative. It generates the action chunk by iterative denoising, so it can represent several distinct ways of doing a task instead of averaging them. It's slower per call and also predicts chunks.</td><td>The upgrade path if ACT averages away strategies your data needs.</td></tr>
+</tbody>
+</table>
+
+<h2>10. Where ACT is weak</h2>
+<div class="box warn"><b class="t">Known failure modes</b>
+<ul>
+<li><b>One answer per situation.</b> With z = 0 at test time, ACT outputs a single chunk. If the data contains two equally valid strategies, it may blend them. A consistent (scripted) expert avoids this.</li>
+<li><b>Ignoring the cameras.</b> If the joint angles alone predict the next actions well in training, the network can learn to rely on them and stop looking (HumanPlus). Varied starts and object positions force it to use vision.</li>
+<li><b>Chunk length.</b> Too short and it drifts and stutters; too long and it reacts late to bumps and slips (1% at k=1, 44% at k=100, worse again above).</li>
+<li><b>Long, multi-stage tasks.</b> The paper's episodes are 8–14&nbsp;s. Very long tasks give the network more ways to lose track of which stage it is in.</li>
+<li><b>Precision versus data.</b> The paper's hardest task (thread velcro, 100 demos) reached only 20%. More, or more consistent, data is the main lever.</li>
+<li><b>Validation loss is a weak guide.</b> A low training loss doesn't mean a high success rate, so evaluate closed-loop.</li>
+</ul></div>
+
+<h2>11. What this means for the G1 box task</h2>
+<figure>
+<svg viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<defs><marker id="a11" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#334155"/></marker></defs>
+<rect width="860" height="300" fill="#fff"/>
+<g transform="translate(10,14)">
+  <rect x="0" y="10" width="200" height="190" rx="10" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="100" y="32" text-anchor="middle" font-weight="700" fill="#1e3a8a">observation</text>
+  <text x="14" y="58">3 cameras: head,</text><text x="14" y="74">left wrist, right wrist</text>
+  <text x="14" y="100">37 state values:</text><text x="14" y="116">31 joint positions (arms,</text><text x="14" y="132">hands, waist) + torso IMU</text>
+  <text x="14" y="160" fill="#1e3a8a" font-size="10">vs ALOHA: 4 cams, 14 joints</text>
+  <path d="M202,105 L258,105" stroke="#334155" stroke-width="1.8" marker-end="url(#a11)"/>
+  <rect x="260" y="40" width="180" height="130" rx="10" fill="#ede9fe" stroke="#7c3aed"/>
+  <text x="350" y="70" text-anchor="middle" font-weight="700" fill="#5b21b6">ACT</text>
+  <text x="350" y="94" text-anchor="middle">chunk 50 = 1 s at 50 Hz</text>
+  <text x="350" y="114" text-anchor="middle">ensembling m = 0.01</text>
+  <text x="350" y="134" text-anchor="middle">trained by le2act.py</text><text x="350" y="150" text-anchor="middle">+ train_act.sh</text>
+  <path d="M442,105 L498,105" stroke="#334155" stroke-width="1.8" marker-end="url(#a11)"/>
+  <rect x="500" y="10" width="200" height="190" rx="10" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="600" y="32" text-anchor="middle" font-weight="700" fill="#14532d">action (35)</text>
+  <text x="514" y="58">31 joint targets</text><text x="514" y="74">(arms, hands, waist)</text>
+  <text x="514" y="100">waist lock (0/1)</text>
+  <text x="514" y="126">walker command</text><text x="514" y="142">(vx, vy, yaw rate)</text>
+  <text x="514" y="168" fill="#14532d" font-size="10">like Mobile ALOHA's base</text><text x="514" y="182" fill="#14532d" font-size="10">velocity in the action</text>
+  <path d="M702,70 L758,70" stroke="#334155" stroke-width="1.6" marker-end="url(#a11)"/>
+  <path d="M702,140 L758,140" stroke="#334155" stroke-width="1.6" marker-end="url(#a11)"/>
+  <rect x="760" y="40" width="88" height="56" rx="8" fill="#ffe4e6" stroke="#be123c"/><text x="804" y="64" text-anchor="middle" font-weight="700">upper</text><text x="804" y="80" text-anchor="middle">body PD</text>
+  <rect x="760" y="112" width="88" height="56" rx="8" fill="#ffe4e6" stroke="#be123c"/><text x="804" y="136" text-anchor="middle" font-weight="700">RL walker</text><text x="804" y="152" text-anchor="middle">legs</text>
+  <text x="430" y="240" text-anchor="middle" fill="#555">ACT replaces g1_grasp.cs; the trained walker keeps the legs balanced, exactly the HumanPlus split</text>
+  <text x="430" y="258" text-anchor="middle" fill="#555">(imitation on top, RL below), and the walker command rides in the action like Mobile ALOHA's base velocity</text>
+</g>
+</svg>
+</figure>
+<table>
+<thead><tr><th style="width:30%">What the papers say</th><th>For your data and training</th></tr></thead>
+<tbody>
+<tr><td>CVAE matters for human data, not scripted data</td><td>Your demonstrations come from a deterministic script, so they're perfectly consistent. Keep the CVAE (it's cheap), but don't expect it to do much. Consistency is your advantage.</td></tr>
+<tr><td>Long chunks are safe when things are deterministic (BID)</td><td>Chunk 50–100 is fine for the reach, squeeze and walk. The catch and the moments a box is slipping are reactive, so prefer temporal ensembling (m = 0.01) for evaluation, which <code>eval_act.py</code> already does.</td></tr>
+<tr><td>The paper's episodes are 8–14&nbsp;s</td><td>Yours are about 40&nbsp;s with six phases. Start the pilot with the catch-to-lift half (<code>le2act.py --segment reach</code>, about 12&nbsp;s). Train the full task once that works, or keep two policies.</td></tr>
+<tr><td>ACT can ignore vision (HumanPlus)</td><td>Your expert reads the box position from the simulator, which the policy can't see. Randomize the box start, size and robot start enough that the cameras are needed. Check with a "frozen camera" test: if success doesn't drop, it isn't using vision.</td></tr>
+<tr><td>50 demos per task worked at 8–14&nbsp;s</td><td>For a 40&nbsp;s, multi-box-size task, plan on a few hundred episodes (the pilot: 200 of one box), as the plan says.</td></tr>
+<tr><td>Absolute joint targets beat deltas</td><td>Your actions are absolute actuator targets. Keep it that way.</td></tr>
+<tr><td>Base velocity in the action works (Mobile ALOHA)</td><td>The walker command is in your action vector. Mind the walker's dead-band (it only steps above about 0.4–0.6&nbsp;m/s): the policy has to learn bang-bang-like commands, which chunking reproduces well.</td></tr>
+<tr><td>Evaluate closed-loop</td><td>Use <code>eval_act.py</code> on the same seeds as the expert. Ignore validation loss for model selection.</td></tr>
+</tbody>
+</table>
+
+<h2>12. Glossary and sources</h2>
+<table>
+<thead><tr><th style="width:24%">Term</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Behaviour cloning (BC)</td><td>Supervised learning from demonstrations: observation in, the expert's action as the label.</td></tr>
+<tr><td>Compounding error</td><td>Small mistakes put the robot in unfamiliar states, where it makes bigger mistakes.</td></tr>
+<tr><td>Action chunk</td><td>The next k actions predicted together from one observation.</td></tr>
+<tr><td>Temporal ensembling</td><td>Averaging every overlapping chunk's prediction for the current step, weighted exp(−m·i) from the oldest.</td></tr>
+<tr><td>CVAE</td><td>Conditional variational autoencoder: a latent z captures the variation the observation can't explain; z = 0 at test time.</td></tr>
+<tr><td>KL weight β</td><td>How strongly z is pulled towards a standard Gaussian (10 in ACT).</td></tr>
+<tr><td>Query tokens</td><td>Learned vectors that ask the transformer for one output each (DETR's object queries, ACT's future steps).</td></tr>
+<tr><td>Proprioception</td><td>The robot's own state: joint positions, IMU.</td></tr>
+<tr><td>Co-training</td><td>Training on a mix of the task data and related data, sampled together each batch.</td></tr>
+</tbody>
+</table>
+<p class="k"><b>Sources read for this page.</b></p>
+<ul class="k">
+<li>T. Zhao, V. Kumar, S. Levine, C. Finn, "Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware" (ACT, ALOHA), RSS 2023, arXiv:2304.13705.</li>
+<li>Z. Fu, T. Zhao, C. Finn, "Mobile ALOHA", arXiv:2401.02117.</li>
+<li>Z. Fu et al., "HumanPlus: Humanoid Shadowing and Imitation from Humans", arXiv:2406.10454.</li>
+<li>T. Zhao et al., "ALOHA Unleashed", arXiv:2410.13126.</li>
+<li>Y. Liu et al., "Bidirectional Decoding: Improving Action Chunking via Closed-Loop Resampling", arXiv:2408.17355.</li>
+<li>K. Black et al., "Real-Time Execution of Action Chunking Flow Policies", arXiv:2506.07339.</li>
+<li>C. Chi et al., "Diffusion Policy", arXiv:2303.04137.</li>
+<li>N. Carion et al., "End-to-End Object Detection with Transformers" (DETR), arXiv:2005.12872.</li>
+<li>S. Ross, J. A. Bagnell, "Efficient Reductions for Imitation Learning", AISTATS 2010.</li>
+<li>LeRobot 0.6.1 <code>policies/act</code> (configuration and model code), including the note on the decoder-layer bug (tonyzhaozh/act issue 25).</li>
+</ul>
+
+</body>
+</html>

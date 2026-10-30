@@ -48,11 +48,12 @@
 <body>
 
 <h1>G1 Box Grasp: conveyor catch and two-hand grasp</h1>
-<div class="meta">Work report for the LuckyEngine G1 controller <code>g1_grasp.cs</code> (namespace <code>G1Pipe</code>, class <code>G1BoxGrasp</code>) &middot; covers 16&ndash;27 October 2026 &middot; repo <code>~/projects/robot_code/G1BoxGrasp</code>, engine project <code>~/Documents/LuckyEngine/Projects/g1_sort</code></div>
+<div class="meta">Work report for the LuckyEngine G1 controller <code>g1_grasp.cs</code> (namespace <code>G1Pipe</code>, class <code>G1BoxGrasp</code>) &middot; covers 16&ndash;30 October 2026 &middot; repo <code>~/projects/robot_code/G1BoxGrasp</code>, engine project <code>~/Documents/LuckyEngine/Projects/g1_sort</code></div>
 
 <div class="box">
 <b class="t">Summary</b>
 The controller started this period as a pick-and-place pipeline for a box <em>resting</em> on the conveyor. The conveyor was turned into a gravity slide and a <strong>catch</strong> was built: the left hand predicts the sliding box, waits in its path and gives with it (sections&nbsp;5&ndash;8). The grip then took most of the work. A high-priority hand friction class and <code>noslip_iterations=20</code> stopped the box creeping out of the hands, and the carry became walker-only (back off, turn in place, walk straight), so by 25 October the whole pipeline worked for the 0.3&nbsp;m, 1&nbsp;kg box (commit <code>0ec78d3</code>). Making it work for other sizes and weights (sections&nbsp;13&ndash;17) needed a palm-led squeeze with capped palm and finger forces, so the 5&nbsp;N&middot;m wrists are never twisted open. It also needed a <strong>waist lock</strong>: the walker's waist yaw was swinging the torso &plusmn;25&deg; at about 2&nbsp;Hz in every turn and flinging the box. On top of those came slower carry speeds, a box raised clear of the table, a centring push that puts any caught box on the body's centre line, and elbows eased outward. On 27 October boxes of 0.2, 0.3 (1&nbsp;kg and 2&nbsp;kg) and 0.4&nbsp;m were caught, carried and placed. The latest 0.1&nbsp;m run reached the table but slipped out as Place began. The remaining weak spots are slow placing (the turns at the table take two tries), a heavy (2&nbsp;kg) box sinking 4.4&nbsp;cm of the 5&nbsp;cm allowed, and the narrow box's grip. Section&nbsp;18 is the plan for the next size and weight tests.
+<p style="margin-top:6pt">From 28 October (sections&nbsp;20&ndash;28) the work moved to heavier and taller boxes and then to collecting imitation-learning data. Heavy boxes walk the body backwards, so the box is now held in pelvis coordinates from the lift, a calm station hold steps the body back onto its spot, the waist stays locked through Place, tall boxes are carried clear of the head, and placing simply lets go over the table (commit <code>1515f8d</code> &ldquo;Good enough&rdquo;). An ACT data pipeline was planned and written. On 30 October recording started working: LuckyEngine 2026.1.2 has no Custom Schema recorder mode, so the pipeline reads <em>MujocoFull</em> sessions and derives the IMU from the pelvis pose; an episode runner records each run, writes a sidecar of what the recorder can't see, and resets the scene so every episode starts exactly as Play does (it took four attempts, the key being a fresh walker on the same frame of the run). Box attributes are randomised with a pool of six boxes dealt like cards, plus a 0&ndash;10&nbsp;cm start jitter. Recording exposed a DragIn runaway and a waist lock that snapped the torso straight; both were fixed. Several grasp tweaks were tried and reverted, and the grasp code is back at the <code>82bc6f9</code> baseline. The final 12-episode recording succeeded 8 times with no squeeze failures; 0.2&nbsp;m boxes slipping at the start of the carry turn are the main remaining problem.</p>
 </div>
 
 <div class="toc">
@@ -74,7 +75,16 @@ The controller started this period as a pick-and-place pipeline for a box <em>re
 <div>16. Carry speeds and placing</div>
 <div>17. Box sizes and weights: results</div>
 <div>18. Test plan: more sizes and weights</div>
-<div>19. Commits, state and known issues</div>
+<div>19. Commits, state and known issues on 27 October</div>
+<div>20. 28 October: heavy boxes, tall boxes and &ldquo;good enough&rdquo;</div>
+<div>21. The ACT data pipeline: plan, tooling and explainer</div>
+<div>22. Recording in LuckyEngine 2026.1.2</div>
+<div>23. The episode runner and the reset between episodes</div>
+<div>24. Box pool randomisation</div>
+<div>25. Controller changes found while recording</div>
+<div>26. Determinism and why one run is not enough</div>
+<div>27. Recording results, 30 October</div>
+<div>28. Commits, state and known issues on 30 October</div>
 <div>Appendix A. Inspector fields added</div>
 <div>Appendix B. Key formulas</div>
 </div>
@@ -476,7 +486,7 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <li>Placing speed: once the sweeps pass, make FaceTable get there in one try (a lower command near the end, or a heading correction during the walk) and speed up the lowering. The goal is a whole run under 40&nbsp;s.</li>
 </ol>
 
-<h2>19. Commits, state and known issues</h2>
+<h2>19. Commits, state and known issues on 27 October</h2>
 <table>
 <thead><tr><th>Commit</th><th>Date</th><th>Message</th><th>Contents</th></tr></thead>
 <tbody>
@@ -484,7 +494,7 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tr><td><code>12d4f2e</code></td><td>25 Oct 13:21</td><td>Slippage problem fixed</td><td><code>noslip_iterations="20"</code> (robot MJCF) and the carry changes.</td></tr>
 <tr><td><code>0ec78d3</code></td><td>25 Oct 13:54</td><td>Pipeline works really well; next: different box sizes and weights</td><td>Walker-only back-off, turn and walk; smoothed carry frame; wrists held after confirm.</td></tr>
 <tr><td><code>e03fcde</code></td><td>27 Oct 17:58</td><td>0.4 m box works: waist lock, palm/finger force caps, slower carry</td><td>Sections 14&ndash;16, plus FreeSlot from the turning point and arm, site and waist logging.</td></tr>
-<tr><td>(this commit)</td><td>27 Oct</td><td>Pipeline works for 0.1&ndash;0.4 m boxes; placing is a bit slow</td><td>Centring push to the body's centre line, <em>GripPoleOut</em>, this report and the new grip graph.</td></tr>
+<tr><td><code>82bc6f9</code></td><td>27 Oct 18:42</td><td>Pipeline works for 0.1&ndash;0.4 m boxes; placing is a bit slow</td><td>Centring push to the body's centre line, <em>GripPoleOut</em>, this report and the new grip graph.</td></tr>
 </tbody>
 </table>
 <p><b>Known issues.</b></p>
@@ -494,6 +504,218 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <li>The 0.1&nbsp;m box's grip rests mostly on fingers (the left palm at 0&nbsp;N), and the latest run slipped as Place began.</li>
 <li>The carry turns overshoot by about 15&deg;.</li>
 <li>The controller is 3,671 lines with 96 inspector fields. The engine copy still differs only in <em>ArmReach</em>.</li>
+</ul>
+
+<h2 class="pb">20. 28 October: heavy boxes, tall boxes and &ldquo;good enough&rdquo;</h2>
+<p>The 27 October pipeline handled 0.1&ndash;0.4&nbsp;m boxes of about 1&nbsp;kg. The next round of tests made the boxes heavier (density 150 &rarr; 300, up to 3.3&nbsp;kg) and taller. Four new problems came out of the logs, and the fixes below were committed as <code>1515f8d</code> &ldquo;Good enough&rdquo;.</p>
+
+<h3>20.1 Heavy boxes walk the body backwards</h3>
+<p>With a 2&ndash;3.3&nbsp;kg box held 0.3&nbsp;m in front of the chest, the walker leans back against the load and takes small steps backwards. In the logged 0.3&nbsp;m and 0.4&nbsp;m runs the pelvis drifted 10&ndash;20&nbsp;cm back while standing with the box, so the back-off, the turn and the walk all started from the wrong place and the table spot was missed. Three changes:</p>
+<table>
+<thead><tr><th style="width:22%">Change</th><th>What it does</th><th style="width:30%">Why</th></tr></thead>
+<tbody>
+<tr><td><b>A.</b> Lift in pelvis coordinates</td><td>At the start of the lift the grip centre and axes are converted into the pelvis frame (<code>ToBody</code>). The box rises <code>k_ClearLift</code> (3&nbsp;cm) first, then rises the rest of <em>LiftHeight</em> while it is pulled in toward <code>CarryX()</code> at <code>k_CarrySpeed</code> (0.1&nbsp;m/s).</td><td>A body pushed back by the weight no longer stretches the arms after it: the box follows the body, and a heavy box comes close to the chest early.</td></tr>
+<tr><td><b>B.</b> Station hold</td><td>When standing with the box (after the back-off, through the turns, at the table), if the pelvis has drifted more than <code>k_DriftTol</code> (10&nbsp;cm) from its anchor, the walker steps it back, one direction at a time, until within <code>k_DriftDone</code> (4&nbsp;cm).</td><td>Puts the body back where the plan expects it.</td></tr>
+<tr><td><b>C.</b> Waist lock through Place</td><td><code>lockIt = LockWaist &amp;&amp; Phase &gt; Squeeze &amp;&amp; Phase &lt; Release</code> (it used to end at Place).</td><td>Given back during Place, the walker swung a heavy box loose: waist yaw &plusmn;10&deg;, pitch 8&ndash;15&deg;.</td></tr>
+</tbody>
+</table>
+
+<h3>20.2 The station hold must stay calm</h3>
+<p>The first station hold ran everywhere, including the lift and pull-in, and corrected forward/back, sideways and yaw at once. Two failures followed:</p>
+<ul>
+<li><b>A to-and-fro limit cycle during the lift.</b> The correction steps rocked the body &plusmn;6&nbsp;cm with a period of about 1.2&nbsp;s, and flung a 3.3&nbsp;kg tall box. The user's words: &ldquo;the robot does a to and fro motion destabilizing everything, it wasn't happening before your weight updates&rdquo;.</li>
+<li><b>Stumbles in the back-off and turns.</b> Combined commands (vx + vy + yaw, or sideways while still coasting) dropped the pelvis to 0.50&nbsp;m and swung the heading 19&deg;.</li>
+</ul>
+<p>The final rules: no station hold in Lift or PullIn; a correction starts only when the body has been still for <em>StillTime</em> and is not turning; it moves in <b>one direction only</b> (forward/back if that error exceeds 4&nbsp;cm, else sideways); it stops as soon as the remaining error is under 4&nbsp;cm, when overshot, or when a turn starts. The anchor is the grip spot until the back-off ends, then the back-off spot, then the stand spot at the table.</p>
+
+<h3>20.3 Tall boxes: the right wrist and the head</h3>
+<ul>
+<li><b>Right wrist wound to its limit.</b> On a tall box the parked right hand's wrist servo kept steering toward an orientation it could not reach and wound the wrist yaw to 73&ndash;93&deg;, so the hand pointed down. The fix of the day: the wrists of hands that are not gripping, or are parked through the catch, ease back to neutral instead of steering. <em>(Reverted on 30 October, section&nbsp;25.4.)</em></li>
+<li><b>The box hit the head.</b> A tall box pulled in to <em>CarryOffset</em> reached the head mesh (0.33&ndash;0.53&nbsp;m above the pelvis, front at +0.078&nbsp;m) and the contact destabilised the body. New field <em>HeadClearance</em> (0.25&nbsp;m): a box whose top would reach the head is carried with its near face that far in front of the head:</li>
+</ul>
+<pre>CarryX() = CarryOffset.Y + k_MaxRaise + halfH &gt; k_HeadBottom (0.30 m)
+           ? max(CarryOffset.X, k_HeadFront (0.08 m) + HeadClearance + halfD)
+           : CarryOffset.X</pre>
+<p><em>CarryOffset</em>'s default moved from (0.30, 0.10, 0) to (0.24, 0.10, 0). The scene keeps its saved (0.3, 0.1, 0) until changed in the inspector.</p>
+
+<h3>20.4 The parked right arm and the passing box</h3>
+<p>While the left hand caught, the folded right hand sat where a box sliding along the belt could clip it, and in one 0.2&nbsp;m tall-box run it pushed the box further out. Two changes were made: <code>ParkPose</code> pulled the parked hand back so its straight fingertips (<code>k_FingerTip</code>&nbsp;0.09&nbsp;m) stayed <code>k_ParkClear</code> (4&nbsp;cm) behind the passing box's near face; and, after an elbow pull to avoid the box made the whole body oscillate, the parked hand was limited to <code>k_ParkSpeed</code> (5&nbsp;cm/s). <em>(Both reverted on 30 October, section&nbsp;25.4.)</em></p>
+
+<h3>20.5 Placing, simplified</h3>
+<p>At the table the end effectors got stuck between the box and the table while the controller searched for a free slot and stepped closer, and the arms reached their 95&nbsp;% IK cap. The user asked to drop the slot search for now (&ldquo;if the box is above the table, just release it there&rdquo;) since ACT will learn placing from the demonstrations anyway:</p>
+<ul>
+<li><code>FreeSlot</code>, <code>StepCloser</code>, <code>StepReposition</code>, <code>Phase.Reposition</code> and the fields <em>PlaceSpacing</em>, <em>MaxRepositions</em>, <em>RepositionStep</em>, <em>RepositionTolerance</em>, <em>MinStandDistance</em> were removed.</li>
+<li>The walk goes to <code>TableSpot(from)</code>: the nearest point on the line <em>PlaceEdgeInset</em> in from the table's near edge, clamped to its ends.</li>
+<li><code>StepPlace</code>: settle, convert to world coordinates; if the box centre is already over the table (<code>OverTable</code>, 5&nbsp;cm inset) go straight on, else move horizontally over the spot; then lower at 3&nbsp;cm/s until 1&nbsp;cm above the table or 2&nbsp;cm below the start, and release.</li>
+<li>Release opens the palms at 0.3&nbsp;m/s to a 10&nbsp;cm gap and waits 0.5&nbsp;s (was 0.05&nbsp;m/s, 5&nbsp;cm, 1.5&nbsp;s).</li>
+</ul>
+
+<h3>20.6 State on 28 October</h3>
+<p>The 0.4&nbsp;m box at density 300 was caught, carried and placed. The user judged it &ldquo;good enough&rdquo; to start collecting ACT data, and it was committed as <code>1515f8d</code> together with the data pipeline below.</p>
+
+<h2>21. The ACT data pipeline: plan, tooling and explainer</h2>
+<p>The scripted controller solves the task from privileged state (box pose from MuJoCo, tared contact forces), so it can serve as the demonstrator for an imitation-learning policy (ACT, Action Chunking with Transformers) that sees only cameras and proprioception.</p>
+<table>
+<thead><tr><th style="width:30%">File</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>plans/G1_ACT_data_pipeline_plan.html</code></td><td>The plan: what ACT controls (31 upper-body actuators + waist lock + walker command; the RL walker keeps the legs), what the engine records and what it cannot (hence a script &ldquo;sidecar&rdquo;), the episode loop, randomisation and recovery data, training settings, closed-loop evaluation over gRPC, risks and milestones.</td></tr>
+<tr><td><code>data_pipeline/</code></td><td><code>common.py</code> (layouts, readers), <code>qa.py</code> (integrity checks), <code>le2act.py</code> (session + sidecar &rarr; LeRobot&nbsp;3.0 dataset), <code>train_act.sh</code> (smoke / pilot / full), <code>eval_act.py</code> (closed-loop through the <code>luckyrobots</code> Session), <code>make_fake_session.py</code> and <code>tests/selftest.sh</code> (the whole chain without the engine), <code>README.html</code> (code guide). Python env in <code>data_pipeline/.venv</code> (lerobot 0.6.1, luckyrobots 0.5.0, torch 2.11 + CUDA on the GTX&nbsp;1650).</td></tr>
+<tr><td><code>docs/ACT_explained.html</code></td><td>An explainer of ACT read from the ACT, Mobile ALOHA, HumanPlus, ALOHA Unleashed, Bidirectional Decoding and Real-Time Chunking papers and LeRobot's ACT code: action chunking, temporal ensembling, the CVAE, the network layer by layer, training settings, results and ablations, follow-ups, weaknesses and what it means for the G1 data. Not committed.</td></tr>
+</tbody>
+</table>
+<p><b>The vectors.</b> <code>observation.state</code> = 37: the 31 upper-body joint angles (14 arm, 14 hand, 3 waist) and 6 IMU values. <code>action</code> = 35: the 31 upper-body actuator commands, then <code>waist_lock</code> and the walker command <code>cmd_vx, cmd_vy, cmd_yaw</code>. The phase label (catch, grasp, lift, carry, place, retract) is stored but is not a policy input.</p>
+<p><b>Self-test.</b> <code>tests/selftest.sh &lt;g1_three_fingers.xml&gt;</code> writes a fake 3-episode session, runs QA, the viewer, the converter, a load-back check that actions line up with the commands and video frames are in sync, 20 ACT training steps and an evaluation against a stand-in <code>luckyrobots</code> Session. It passed on 28 October and again after every change on 30 October. A 20-step ACT run on the GPU took about 2&nbsp;s and 1.25&nbsp;GB.</p>
+
+<h2 class="pb">22. Recording in LuckyEngine 2026.1.2</h2>
+<p>The plan and the first scripts were written from the online LuckyEngine docs, which describe a <em>Custom Schema</em> recorder mode. The installed editor (2026.1.2) has only three data modes: <b>RobotArm</b>, <b>MujocoFull</b> and <b>Drone</b>. The pipeline was moved to MujocoFull and <code>make_schema.py</code> and <code>schema/</code> were removed.</p>
+<table>
+<thead><tr><th style="width:24%">MujocoFull column</th><th>Contents</th><th style="width:30%">Used as</th></tr></thead>
+<tbody>
+<tr><td><code>observation.state</code> (57)</td><td>The whole qpos, named in <code>meta/info.json</code>: the pelvis free joint (<code>floating_base_joint_x &hellip; _qz</code>), all 43 joints, then each free box (<code>&lt;Tag&gt;_x &hellip; _qz</code>; 7 more per box).</td><td><code>q.&lt;joint&gt;</code>; <code>pose.pelvis</code> and <code>pose.box.&lt;Tag&gt;</code> (privileged, analysis only); the pelvis IMU.</td></tr>
+<tr><td><code>action</code> (43)</td><td>Every actuator's ctrl by joint name. The walker drives legs and waist through its own channel, so those read 0; the script's arm, hand and (locked) waist commands are exact.</td><td><code>u.&lt;joint&gt;</code>: the first 31 actions.</td></tr>
+<tr><td><code>frame_flags</code></td><td>Bits <code>new_policy_step</code>, <code>post_reset</code>.</td><td>QA: a reset may appear only on frame 0.</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>No IMU in MujocoFull.</b> The six IMU values are derived from the recorded pelvis orientation: gravity in the pelvis frame R<sup>T</sup>(0,&nbsp;0,&nbsp;&minus;1) and the body-frame angular velocity from consecutive quaternions. A real G1 pelvis IMU gives both.</li>
+<li><b>Alignment.</b> The recorded ctrl in row <i>k</i>+1 equals what the script wrote at tick <i>k</i>: mean error 3.5&times;10<sup>&minus;8</sup>&nbsp;rad on the probe actuator (left wrist roll), against 8&times;10<sup>&minus;4</sup> at shifts 0 and 2. The converter pairs state <i>k</i> with ctrl row <i>k</i>+1.</li>
+<li><b>Files.</b> Sessions go to <code>&lt;project&gt;/DataSessions/session_&lt;date&gt;_&lt;time&gt;/</code> (one parquet and one 256&times;256 H.264 video per episode, about 1&nbsp;MB + 1.8&nbsp;MB for 34&nbsp;s). <code>StopRecording</code> appends an empty (length&nbsp;0) episode row to <code>meta/episodes</code>, which the reader skips.</li>
+<li><b>Head camera.</b> In the first recording <code>head_camera</code> looked straight at the wall behind the conveyor: the box showed only at the frame's edge and the hands only in the corners. The user tilted it down; from then on the box, both hands and the table are in view through every phase (the robot's chest fills about the bottom fifth).</li>
+</ul>
+<p><b>Viewer: <code>inspect_session.py</code>.</b> One self-contained HTML page per session (written to <code>~/Documents/LuckyEngine/Inspect/</code>): per-episode checks marked pass, warning or fail (missing values, frame gaps, tick spacing, resets inside an episode, commands outside the joint ranges, one video frame per row, frozen and black frames, sidecar length, action alignment and how well it is pinned down, waist lock values, phases present and in order, expert outcome), the phase timeline, each camera's frame at every phase start, and hover charts of every joint's angle against its command, the walker command, waist lock, IMU, and the box and pelvis paths. Its frozen-frame threshold was tightened to 0.02 per pixel after it flagged the robot standing still: a live render never changed by less than 0.05.</p>
+
+<h2>23. The episode runner and the reset between episodes</h2>
+<p><code>g1_grasp.episodes.cs</code> is a partial-class file next to <code>g1_grasp.cs</code>; the controller itself got only a few hooks (<code>partial</code>, <code>RecordTick</code> at the end of <code>OnUpdate</code>, <code>StartEpisodeState</code> on Start frames, the first failure reason, and <code>Repeat = RepeatLoop &amp;&amp; !RecordEpisodes</code> so a run ends instead of looking for the next box).</p>
+<ul>
+<li><b>Per episode.</b> <code>Observer.BeginEpisode</code> once the robot is set up; each tick a sidecar row (<code>frame, sim_time, task_index, waist_lock, cmd_vx, cmd_vy, cmd_yaw, probe_ctrl</code>) and <code>Observer.SetCurrentTaskIndex</code>; Done ends it as a success, Failed or <em>EpisodeTimeout</em> (80&nbsp;s) as a failure; a JSON header with the seed, box tag, size and mass, start pose, start offset, release error and seconds.</li>
+<li><b>Between episodes.</b> Every private field of the controller is reset by copying it from a fresh instance (reflection; the inspector's public fields and the recorder state are kept), and the next frame is a Start frame again.</li>
+</ul>
+<p>Making every episode start like Play took four attempts:</p>
+<table>
+<thead><tr><th style="width:26%">Attempt</th><th>What happened</th></tr></thead>
+<tbody>
+<tr><td><code>ResetToInitialState</code> only</td><td>Episode 1 started with the robot facing another way and the box by its feet: keyframe 0 is the compiled model's default, not the scene as Play sets it up.</td></tr>
+<tr><td>Reset + restore the qpos saved after the first <code>Begin</code></td><td>Box and robot back in place, but episodes 1 and 2 started from the same qpos and still ended differently (a slip in the turn; a grip out of reach). The legs already differed by 0.13&nbsp;rad on the first frame: the walker policy kept its memory of the previous episode.</td></tr>
+<tr><td>Hold the box with a weld while the robot stands still 2&nbsp;s, then release</td><td>Rejected by the user: it changed the catch and broke episode 0 (&ldquo;box left the grasp: 0.25&nbsp;m&rdquo;).</td></tr>
+<tr><td><b>Restore on the Start frame, walker off and on</b></td><td>On the frame Play first sets the robot up, episode 0 saves the full qpos (<code>GetFullQpos</code>). On the same frame of every later episode: rotator and walker off, <code>ResetToInitialState</code> (velocities, contacts), <code>SetFullQpos</code>, <code>ReseedPolicyPDTargets</code>, walker on, then <code>Begin</code> runs as on Play. Episodes after a reset became identical to the tick; 3/3 succeeded. Committed as <code>9de7a09</code> &ldquo;Data collection works&rdquo;.</td></tr>
+</tbody>
+</table>
+<figure>
+<svg viewBox="0 0 680 150" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="10">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1f4e79"/></marker></defs>
+  <g fill="#e9edf2" stroke="#1f4e79" stroke-width="1">
+    <rect x="10" y="20" width="120" height="44" rx="4"/><rect x="150" y="20" width="120" height="44" rx="4"/><rect x="290" y="20" width="110" height="44" rx="4"/><rect x="420" y="20" width="120" height="44" rx="4"/><rect x="560" y="20" width="110" height="44" rx="4"/>
+  </g>
+  <g fill="#1a1a1a" text-anchor="middle">
+    <text x="70" y="38">Start frame</text><text x="70" y="52" font-size="9">save qpos (ep 0) or</text><text x="70" y="62" font-size="8.5">restore + fresh walker</text>
+    <text x="210" y="38">Begin</text><text x="210" y="52" font-size="9">robot set up as on Play;</text><text x="210" y="62" font-size="9">box placed (pool, jitter)</text>
+    <text x="345" y="38">BeginEpisode</text><text x="345" y="52" font-size="9">end of that frame</text>
+    <text x="480" y="38">catch &#8594; place</text><text x="480" y="52" font-size="9">sidecar row each tick,</text><text x="480" y="62" font-size="9">phase label</text>
+    <text x="615" y="38">Done / Failed</text><text x="615" y="52" font-size="9">EndCurrentEpisode,</text><text x="615" y="62" font-size="9">header, reset fields</text>
+  </g>
+  <g stroke="#1f4e79" stroke-width="1.2" marker-end="url(#ar)"><line x1="130" y1="42" x2="148" y2="42"/><line x1="270" y1="42" x2="288" y2="42"/><line x1="400" y1="42" x2="418" y2="42"/><line x1="540" y1="42" x2="558" y2="42"/></g>
+  <path d="M615,66 C615,120 70,120 70,68" fill="none" stroke="#1f4e79" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+  <text x="340" y="132" text-anchor="middle" fill="#555" font-size="9">next frame is a Start frame again (until EpisodeCount, then StopRecording)</text>
+</svg>
+<figcaption>Figure 5. One recorded episode. Every episode, the first too, starts from the same state on the same frame of the run, so starts are exactly repeatable.</figcaption>
+</figure>
+
+<h2>24. Box pool randomisation</h2>
+<p>LuckyEngine 2026.1.2 has no script call to change a body's size, mass or friction at run time (only positions, ctrl and forces). Box attributes are therefore varied with a <b>pool</b>: six boxes duplicated from <code>PoolBox_01</code> in the editor, one of which is put on the belt each episode.</p>
+<table>
+<thead><tr><th>Tag</th><th class="n">Scale (x, y, z)</th><th class="n">Density</th><th class="n">Mass</th></tr></thead>
+<tbody>
+<tr><td>Box_W40_L / Box_W40_H</td><td class="n">0.15, 0.15, 0.4</td><td class="n">100 / 220</td><td class="n">0.90 / 1.98 kg</td></tr>
+<tr><td>Box_W30_L / Box_W30_H</td><td class="n">0.15, 0.15, 0.3</td><td class="n">100 / 220</td><td class="n">0.67 / 1.48 kg</td></tr>
+<tr><td>Box_W20_L / Box_W20_H</td><td class="n">0.15, 0.15, 0.2</td><td class="n">100 / 220</td><td class="n">0.45 / 0.99 kg</td></tr>
+</tbody>
+</table>
+<p class="k">Scale z is the box's length along the belt (the squeeze axis). In the last recording the scene had Box_W40_L at 0.2&nbsp;m, so the pool held three 0.2&nbsp;m boxes, two 0.3&nbsp;m boxes and one 0.4&nbsp;m box.</p>
+<p>Getting the placement right took four tries:</p>
+<table>
+<thead><tr><th style="width:28%">Version</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Swap the chosen box with the belt box (positions from the Play qpos)</td><td>All six duplicates were still stacked on the belt in the editor; on Play they started inside each other and blew apart. The box the robot tried to catch moved at 9.7&nbsp;m/s and fell off the belt within 0.3&nbsp;s, every episode.</td></tr>
+<tr><td>Belt pose from <code>GetDefaultFreeJointPosition</code></td><td>The call does not return the editor pose. The chosen box was placed inside something, shot away at ever-increasing speed and hit the robot on its way out.</td></tr>
+<tr><td>Belt pose from the Play qpos, &ldquo;exactly one box on the belt&rdquo; check</td><td>Worked, but depended on the editor layout: a belt box moved to the belt's top edge was not counted as on the belt and recording was turned off.</td></tr>
+<tr><td><b><em>BoxStart</em> and <em>ParkSpot</em></b></td><td>The episode's box goes to <em>BoxStart</em> (default 0.616, 0.734, 0.978: the original belt start); every other box to its own spot in a row from <em>ParkSpot</em> (2&nbsp;m behind the robot, 0.6&nbsp;m apart); all upright with the editor-to-MuJoCo rotation (0.707,&nbsp;0.707,&nbsp;0,&nbsp;0). Episode 0 goes through the same reset, so the editor layout no longer matters as long as no two boxes overlap.</td></tr>
+</tbody>
+</table>
+<p><b>Dealing and jitter</b> (commit <code>0700197</code>). Random picks with replacement repeated boxes (one session drew <code>W40_L</code> three times and never drew the 0.2&nbsp;m boxes), and every repeat was identical to the tick. The pool is now dealt like cards: each round of six episodes uses every box once, in an order shuffled from the seed. Each episode's start also moves 0&ndash;<em>StartJitter.X</em> (10&nbsp;cm) <b>down</b> the belt and &plusmn;<em>StartJitter.Y</em> (2&nbsp;cm) across it, from its own seed (<code>BaseSeed + episode</code>), logged as <code>start_offset</code>. The jitter never moves the box up the belt: at the default start the box's centre of mass is only about 3&nbsp;cm from the belt's top end (a 0.4&nbsp;m box already overhangs it by about 17&nbsp;cm), and at the start used in some plain runs (0.623, 0.720, 1.004) it was 7&nbsp;mm from it, which is why that box was already moving at 1.16&nbsp;m/s on the first frame.</p>
+
+<h2 class="pb">25. Controller changes found while recording</h2>
+<p>Recording many episodes of every box size exposed controller problems the single test runs had hidden. Some changes stayed; several were reverted.</p>
+<h3>25.1 DragIn ran away (kept fix)</h3>
+<p>When a box is gripped more than 0.30&nbsp;m ahead, DragIn pulls the grip toward the body until it is 0.30&nbsp;m ahead of the pelvis, measured every frame. Pulling the hands in made the walker step back, which kept the grip 0.37&nbsp;m ahead, so the pull never ended: the robot reversed 1.8&nbsp;m in 7&nbsp;s at up to 0.55&nbsp;m/s with the walk command at zero. The drag distance is now measured once when the drag starts (<code>m_DragLeft</code>) and the lift begins after that distance, whatever the body does.</p>
+<h3>25.2 The waist lock snapped the torso (kept fix)</h3>
+<p>When the grip was confirmed and the waist locked, the waist went from (&minus;3,&nbsp;2,&nbsp;6)&deg; to (0,&nbsp;0,&nbsp;0) in about 0.1&nbsp;s: torso pitch rate 1.0&nbsp;rad/s, pelvis 0.78&nbsp;rad/s, then 23&nbsp;cm of backward stepping through the drag-in and lift, a 69&nbsp;N left-palm spike, the left wrist forced open to 56&deg; and the box tipping. The lock wrote the waist actuators' targets, but those actuators were not script-owned, so something else (most likely the motion graph) kept them at 0; the first recording had shown waist commands of 0 throughout the lock. While locked the waist actuators are now script-owned (<code>IK = false</code>) and given back at Release. After the fix the waist held its lock angles to Place, the jolt fell to 0.49&nbsp;rad/s for 0.2&nbsp;s, and a 0.2&nbsp;m box reached Place and a 0.3&nbsp;m box was released on the table with both palms on throughout the carry.</p>
+<h3>25.3 Squeeze changes (reverted)</h3>
+<ul>
+<li><b>Finger back-off.</b> When a palm came off its face while holding, the squeeze kept closing and loaded straight fingertips 16&ndash;22&nbsp;cm from the 5&nbsp;N&middot;m wrist (40&ndash;50&nbsp;N &asymp; 8&nbsp;N&middot;m), forcing the wrists 20&ndash;30&deg; open. Backing the hand off when the fingers alone exceeded <em>MaxFingerForce</em> was tried; an otherwise tick-identical 0.2&nbsp;m run then loosened and slipped in the turn instead of reaching Place, so it was reverted.</li>
+<li><b>First hand waits for the other.</b> Light boxes failed the squeeze because they slid 12&ndash;14&nbsp;cm along the near-frictionless belt while the hands closed (3&ndash;5&nbsp;cm in successes). A hand already touching the box held its gap, with its fingers still, until the other touched. It gave the first recorded success of a 0.45&nbsp;kg 0.2&nbsp;m box, but was reverted with the rest of the grasp changes (25.4).</li>
+</ul>
+<h3>25.4 The right hand, and the return to <code>82bc6f9</code></h3>
+<p>The user saw the left arm jolt during the catch and sudden right-hand movements during the pre-grasp. The logs showed the parked right hand sagging about 12&nbsp;cm below its target with its thumb pressing the conveyor's near edge at up to 222&nbsp;N, then springing up at 0.85&ndash;1.5&nbsp;m/s when the pre-grasp released it, which jolted the left hand holding the box. Folding the parked thumb, letting the parked wrist turn &plusmn;30&deg;, parking 10&nbsp;cm higher, a half-speed approach, and a hover over the belt beside the stop point were tried in turn. None fixed it cleanly.</p>
+<p>At the user's request the whole grasp side was restored to commit <code>82bc6f9</code> (&ldquo;every size box was working&rdquo;): the catch, the move into and through the pre-grasp, the squeeze, wrist steering, finger and thumb poses and the parked hands' movement, which also drops the 28 October <code>ParkPose</code>, 5&nbsp;cm/s parked hand and neutral parked wrist. Each of those functions was compared with <code>82bc6f9</code> and matches. The recording code, the DragIn and waist-lock fixes and everything after the grasp from <code>1515f8d</code> were kept.</p>
+<div class="box warn"><b class="t">Lesson</b>Each grasp-side change fixed one symptom on one box and moved the problem somewhere else; with episodes repeatable to the tick, a single run is not evidence. From here the grasp code stays at the <code>82bc6f9</code> baseline unless a specific change is asked for, and changes are judged on a jittered multi-box recording, not one run.</div>
+
+<h2>26. Determinism and why one run is not enough</h2>
+<ul>
+<li><b>Repeatable starts.</b> After the reset, episodes with the same box and start are identical to the tick (for example three <code>W40_L</code> episodes at 31.7&nbsp;s and 1587 ticks each).</li>
+<li><b>Hidden state still leaks.</b> Two <code>W40_L</code> episodes in different sessions started from identical first frames, yet one succeeded and one failed. The first difference was 0.0001&nbsp;rad in the left elbow command at frame&nbsp;18; it comes from the arm IK solver, which the reset does not clear, so it carries a trace of the previous episode. By frame 300 the joints differed by 0.26&nbsp;rad. <code>W30_L</code> showed the same flip in reverse.</li>
+<li><b>Light boxes are on a knife edge.</b> In light-box squeeze failures the box slid 12&ndash;14&nbsp;cm along the belt during the grasp and started 1.5&ndash;2&nbsp;cm further from the body; in successes it slid 3&ndash;5&nbsp;cm.</li>
+<li><b>Consequence.</b> Success is a rate per box, not a yes or no. Deal and jitter make each episode a different demonstration and give real rates.</li>
+</ul>
+
+<h2>27. Recording results, 30 October</h2>
+<table>
+<thead><tr><th style="width:12%">Session</th><th style="width:30%">Setup</th><th class="n" style="width:9%">Success</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>16:10</td><td>1 episode, first recording</td><td class="n">1/1</td><td>34.1&nbsp;s, 1706 rows = sidecar ticks = video frames; ctrl one row later (3.5e-8&nbsp;rad). Camera faced the wall.</td></tr>
+<tr><td>16:18</td><td>3 episodes, <code>ResetToInitialState</code> only</td><td class="n">1/2</td><td>Episode 1 started turned with the box at the robot's feet; stopped by hand.</td></tr>
+<tr><td>16:23</td><td>qpos restored a frame early</td><td class="n">1/3</td><td>Walker memory: identical starts, different failures.</td></tr>
+<tr><td>16:46</td><td>Start-frame restore, fresh walker</td><td class="n">3/3</td><td>Episodes 1 and 2 identical (38.1&nbsp;s, placed 7.6&nbsp;cm from the spot).</td></tr>
+<tr><td>17:02&ndash;17:11</td><td>Pool, first versions</td><td class="n">0</td><td>Stacked boxes exploded; wrong belt pose; check turned recording off; DragIn runaway found.</td></tr>
+<tr><td>17:17</td><td>Pool, <em>BoxStart</em>/<em>ParkSpot</em></td><td class="n">2/3</td><td><code>W30_L</code> slipped in FaceTable (left wrist twisted, palm off).</td></tr>
+<tr><td>18:03</td><td>+ waist and drag fixes</td><td class="n">4/6</td><td><code>W30_L</code> failed the squeeze twice (identical); boxes repeated.</td></tr>
+<tr><td>18:14</td><td>12 episodes, old build (no deal or jitter)</td><td class="n">8/12</td><td><code>W30_H</code> 4/4, <code>W40_H</code> 3/3, <code>W30_L</code> 1/1, <code>W40_L</code> 0/2, <code>W20_H</code> 0/1, <code>W20_L</code> 0/1.</td></tr>
+<tr><td><b>20:22</b></td><td><b>12 episodes, deal + jitter, grasp at <code>82bc6f9</code></b></td><td class="n"><b>8/12</b></td><td>No squeeze failures; QA 0 errors; all actions one row later.</td></tr>
+</tbody>
+</table>
+<h3>The final session (20:22, commit <code>0700197</code>)</h3>
+<table>
+<thead><tr><th>Box</th><th class="n">Success</th><th>Failures</th></tr></thead>
+<tbody>
+<tr><td>0.30&nbsp;m, 0.67&nbsp;kg (<code>W30_L</code>)</td><td class="n">2/2</td><td>&mdash;</td></tr>
+<tr><td>0.30&nbsp;m, 1.48&nbsp;kg (<code>W30_H</code>)</td><td class="n">2/2</td><td>&mdash;</td></tr>
+<tr><td>0.20&nbsp;m, 0.45&nbsp;kg (<code>W20_L</code> and <code>W40_L</code> at 0.2&nbsp;m)</td><td class="n">4/5</td><td>One slipped 5.5&nbsp;cm at the start of the turn to the table.</td></tr>
+<tr><td>0.40&nbsp;m, 1.97&nbsp;kg (<code>W40_H</code>)</td><td class="n">1/2</td><td>One slipped 5.2&nbsp;cm in Place.</td></tr>
+<tr><td>0.20&nbsp;m, 0.99&nbsp;kg (<code>W20_H</code>)</td><td class="n">0/2</td><td>Both slipped 5&ndash;6&nbsp;cm at the start of the turn.</td></tr>
+</tbody>
+</table>
+<p>Mean episode 29.5&nbsp;s: catch 7.3&nbsp;s, grasp 4.0&nbsp;s, lift 2.1&nbsp;s, carry 12.0&nbsp;s, place 2.5&nbsp;s, retract 1.6&nbsp;s. Starts moved 0.2&ndash;9.8&nbsp;cm down the belt and up to 2&nbsp;cm across. Viewer page: <code>~/Documents/LuckyEngine/Inspect/inspect_session_2026-10-30_20-22-04.html</code>.</p>
+
+<h2>28. Commits, state and known issues on 30 October</h2>
+<table>
+<thead><tr><th>Commit</th><th>Date</th><th>Message</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>82bc6f9</code></td><td>27 Oct 18:42</td><td>Pipeline works for 0.1&ndash;0.4 m boxes; just placing is a bit slow</td><td>Section 19. The grasp baseline.</td></tr>
+<tr><td><code>1515f8d</code></td><td>28 Oct 15:48</td><td>Good enough</td><td>Section 20; <code>data_pipeline/</code> and <code>plans/</code> (section 21).</td></tr>
+<tr><td><code>9de7a09</code></td><td>30 Oct 16:51</td><td>Data collection works</td><td>Episode runner, MujocoFull reader, pelvis IMU, viewer (sections 22&ndash;23).</td></tr>
+<tr><td><code>986ee99</code></td><td>30 Oct 18:09</td><td>Box pool randomization, drag-in and waist-lock fixes</td><td>Sections 24, 25.1, 25.2.</td></tr>
+<tr><td><code>0700197</code></td><td>30 Oct 20:34</td><td>Data collection with box randomization works</td><td>Deal and jitter; grasp restored to <code>82bc6f9</code> (section 25.4).</td></tr>
+</tbody>
+</table>
+<p><b>Known issues.</b></p>
+<ul>
+<li>0.2&nbsp;m boxes slip out at the start of the carry turn (TurnToTable); the 1&nbsp;kg one every time so far.</li>
+<li>A 2&nbsp;kg 0.4&nbsp;m box slipped once in Place.</li>
+<li>With the <code>82bc6f9</code> grasp, the parked right hand again sags onto the conveyor edge and springs up at the pre-grasp; the tall-box right-wrist wind-up (section 20.3) may return.</li>
+<li>The arm IK solver's state survives the reset, so identical starts can still diverge (section 26).</li>
+<li><em>BoxStart</em> sits close to the belt's top end, so the jitter can only move the box down the belt.</li>
+<li>The scene's <code>Box_W40_L</code> is currently 0.2&nbsp;m long.</li>
+<li>Not yet written: <code>G1ActAgent.cs</code> for closed-loop evaluation, and randomisation of the robot's start pose. <code>docs/ACT_explained.html</code> is not committed.</li>
+<li>The controller is 3,721 lines with 92 inspector fields, plus 305 lines and 9 fields in the episode runner. The engine copy still differs only in <em>ArmReach</em>.</li>
 </ul>
 
 <h2 class="pb">Appendix A. Inspector fields added</h2>
@@ -544,6 +766,26 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tr><td>Place</td><td>PlaceStandDistance</td><td class="n">0.33 m</td><td>Pelvis to slot when placing.</td></tr>
 </tbody>
 </table>
+<h3>Fields added, changed and removed 28&ndash;30 October</h3>
+<table>
+<thead><tr><th style="width:13%">Group</th><th style="width:22%">Field</th><th class="n" style="width:9%">Default</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Arms</td><td>HeadClearance</td><td class="n">0.25 m</td><td>A box tall enough to reach head height is carried with its near face this far in front of the head.</td></tr>
+<tr><td>Arms</td><td>CarryOffset</td><td class="n">(0.24, 0.10, 0)</td><td>Changed from (0.30, 0.10, 0): box centre while carrying, from the pelvis.</td></tr>
+<tr><td>Arms</td><td>LockWaist</td><td class="n">true</td><td>Now from grip confirm to Release (was to Place); the locked waist actuators are script-owned.</td></tr>
+<tr><td>Place</td><td>PlaceEdgeInset</td><td class="n">0.12 m</td><td>Now: the table spot the robot walks to is this far in from the near edge and ends.</td></tr>
+<tr><td>Place</td><td><s>PlaceSpacing, MaxRepositions, RepositionStep, RepositionTolerance, MinStandDistance</s></td><td class="n">&mdash;</td><td>Removed with the free-slot search and stepping closer.</td></tr>
+<tr><td>Recording</td><td>RecordEpisodes</td><td class="n">false</td><td>Record EpisodeCount episodes (needs a LuckyHub sign-in and the recorder set to MujocoFull with its cameras).</td></tr>
+<tr><td>Recording</td><td>EpisodeCount</td><td class="n">5</td><td>Episodes to record before stopping.</td></tr>
+<tr><td>Recording</td><td>EpisodeTimeout</td><td class="n">80 s</td><td>A run still going then ends the episode as failed (the recorder cuts at 90&nbsp;s).</td></tr>
+<tr><td>Recording</td><td>RandomizeBox</td><td class="n">true</td><td>Deal the pool (every free box in the scene) like cards; off: box 0 every episode.</td></tr>
+<tr><td>Recording</td><td>Seed</td><td class="n">0</td><td>Seeds the deal and each episode's jitter (0 = from the clock, logged).</td></tr>
+<tr><td>Recording</td><td>BoxStart</td><td class="n">(0.616, 0.734, 0.978)</td><td>World centre of the episode's box at the start (top of the belt).</td></tr>
+<tr><td>Recording</td><td>StartJitter</td><td class="n">(0.10, 0.02) m</td><td>Up to X down the belt (never up) and &plusmn;Y across it.</td></tr>
+<tr><td>Recording</td><td>ParkSpot</td><td class="n">(&minus;2, 0.1, &minus;1.5)</td><td>World spot of the first box not in use; the rest line up 0.6&nbsp;m apart along +Z.</td></tr>
+<tr><td>Recording</td><td>SidecarDirectory</td><td class="n">&ldquo;&rdquo;</td><td>Where run_&lt;time&gt; sidecar folders go (&ldquo;&rdquo; = ~/Documents/LuckyEngine/DataSidecars).</td></tr>
+</tbody>
+</table>
 <p class="k">The scene's saved values differed in places, for example MinSide 0.08, MaxSqueezeDepth 0.05, GripComfort 95, ThumbOpenDeg 30, ApproachGap 0.02, BeltClearance 0.02, MaxBoxAttempts 5, WalkToBox false.</p>
 
 <h2>Appendix B. Key formulas</h2>
@@ -562,6 +804,12 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tr><td>Squeeze while holding (per palm)</td><td>max(req, min(HeldPalmForce, MaxPalmForce) / 1.25), with req = min(GripSafetyFactor&middot;m&middot;g/(2&middot;BoxFriction)&middot;boost, MaxPalmForce/1.25); the gap aims the palm at 1.25&times; that</td></tr>
 <tr><td>Twist on a wrist from the squeeze</td><td>&tau; &asymp; F<sub>palm</sub>&middot;0.08&ndash;0.11 m + F<sub>fingers</sub>&middot;0.16&ndash;0.22 m, against 5 N&middot;m (pitch and yaw)</td></tr>
 <tr><td>Carry stop distances</td><td>back-off stops at max(d &minus; v&middot;0.4 s, d/2); walk stops 0.10 m &middot; (v / 0.6)&sup2; short</td></tr>
+<tr><td>Station hold (standing with the box)</td><td>start when |pelvis &minus; anchor| &gt; 0.10 m, still for StillTime and not turning; one axis: forward/back if |fwd error| &gt; 0.04 m, else sideways; stop below 0.04 m, on overshoot or when a turn starts</td></tr>
+<tr><td>Pelvis IMU from the recorded pose</td><td>gravity = R<sup>T</sup>(0, 0, &minus;1); &omega;<sub>k</sub> = 2&middot;fps&middot;sign(q<sub>k&minus;1</sub>&middot;q<sub>k</sub>)&middot;vec(q<sub>k&minus;1</sub><sup>*</sup> q<sub>k</sub>), 0 on the first row</td></tr>
+<tr><td>Recorded action alignment</td><td>action(state row k) = ctrl of row k+1; walker command and waist lock from sidecar tick k</td></tr>
+<tr><td>Pool deal</td><td>round r = &lfloor;e / n&rfloor;; order = Fisher&ndash;Yates shuffle with seed 7919&middot;BaseSeed + r; box = order[e mod n]</td></tr>
+<tr><td>Start jitter</td><td>start = BoxStart + down&middot;u&middot;J<sub>x</sub> + (n &times; down)&middot;(2v &minus; 1)&middot;J<sub>y</sub>, u, v ~ U(0,1) from seed BaseSeed + e; down = normalize(n&middot;n<sub>y</sub> &minus; up)</td></tr>
+<tr><td>Box placed in MuJoCo</td><td>p<sub>Mj</sub> = A&middot;(p<sub>world</sub> &minus; sceneTranslation), q<sub>Mj</sub> = A for an upright box, A = GetAxisHzToMj() = (0.707, 0.707, 0, 0)</td></tr>
 <tr><td>Twist resisted by torsional friction</td><td>&tau; = &mu;<sub>torsion</sub> &middot; N per contact, against the box's weight &times; its offset from the grip line</td></tr>
 </tbody>
 </table>
