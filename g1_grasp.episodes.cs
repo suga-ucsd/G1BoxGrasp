@@ -24,13 +24,16 @@ namespace G1Pipe
         public float EpisodeTimeout = 80f; // s, a run still going then ends the episode as failed (the Observer cuts episodes at 90)
 
         [Group("Recording")]
-        public bool RandomizeBox = true; // each episode a random box of the pool (every free box in the scene) starts on the belt
+        public bool RandomizeBox = true; // the pool (every free box in the scene) is dealt like cards: each round of pool-size episodes uses every box once
 
         [Group("Recording")]
-        public int Seed = 0; // episode e picks its box with seed Seed + e (0 = a seed from the clock, logged)
+        public int Seed = 0; // seeds the deal and each episode's start jitter (0 = a seed from the clock, logged)
 
         [Group("Recording")]
         public Vector3 BoxStart = new Vector3(0.61614f, 0.734044f, 0.978122f); // world centre of the episode's box at the start (top of the belt)
+
+        [Group("Recording")]
+        public Vector2 StartJitter = new Vector2(0.1f, 0.02f); // m the start moves: up to this far down the belt (never up: BoxStart sits at its top end), +- this across it
 
         [Group("Recording")]
         public Vector3 ParkSpot = new Vector3(-2f, 0.1f, -1.5f); // world spot of the first box not in use; the rest line up 0.6 m apart along +Z
@@ -44,6 +47,7 @@ namespace G1Pipe
             public int Episode; // Observer episode index (sidecar numbering)
             public int BaseSeed,
                 Box; // this episode's box (index into m_Boxes)
+            public Vector2 Offset; // m this episode's start moved along the belt and across it
             public bool Begun;
             public string Dir = "";
             public StreamWriter? Csv;
@@ -107,9 +111,25 @@ namespace G1Pipe
                 return; // not in the model yet: Begin retries next frame
             if (r.BaseSeed == 0)
                 r.BaseSeed = Seed != 0 ? Seed : Environment.TickCount & 0xffff | 1;
-            r.Box = RandomizeBox
-                ? new System.Random(r.BaseSeed + r.Episode).Next(m_Boxes.Count)
-                : 0;
+            int pool = m_Boxes.Count;
+            var deal = new int[pool]; // this round's order: a seeded shuffle of the pool
+            var shuffle = new System.Random(r.BaseSeed * 7919 + r.Episode / pool);
+            for (int i = 0; i < pool; i++)
+            {
+                int j = shuffle.Next(i + 1);
+                deal[i] = deal[j];
+                deal[j] = i;
+            }
+            r.Box = RandomizeBox ? deal[r.Episode % pool] : 0;
+            var rng = new System.Random(r.BaseSeed + r.Episode);
+            r.Offset = new Vector2(
+                StartJitter.X * (float)rng.NextDouble(),
+                StartJitter.Y * (2f * (float)rng.NextDouble() - 1f)
+            );
+            Quaternion belt = ChuteEntity!.Transform.WorldRotationQuat;
+            Vector3 n = belt * Vector3.Up,
+                down = (n * n.Y - Vector3.Up).Normalized(); // down the belt, in its plane
+            Vector3 start = BoxStart + down * r.Offset.X + Vector3.Cross(n, down) * r.Offset.Y;
             Quaternion toMj = m_Mujoco!.GetAxisHzToMj();
             Vector3 offset = m_Mujoco.GetSceneTranslation();
             for (int i = 0, slot = 0; i < m_Boxes.Count; i++)
@@ -117,7 +137,7 @@ namespace G1Pipe
                 Vector3 p =
                     toMj
                     * (
-                        (i == r.Box ? BoxStart : ParkSpot + new Vector3(0f, 0f, 0.6f * slot++))
+                        (i == r.Box ? start : ParkSpot + new Vector3(0f, 0f, 0.6f * slot++))
                         - offset
                     );
                 uint a = m_Mujoco.GetJointQposAdr(m_Mujoco.GetBodyFreeJointIndex(m_Boxes[i].Body));
@@ -202,7 +222,7 @@ namespace G1Pipe
             r.RobotStart = Pelvis();
             r.Begun = true;
             Log.Info(
-                $"[G1] episode {r.Episode} begins with {BoxTag(r.Box)} ({2f * Math.Max(m_Boxes[r.Box].Half.X, m_Boxes[r.Box].Half.Y):F2} m wide, {m_Mujoco!.GetBodyMass(m_Boxes[r.Box].Body):F2} kg)"
+                $"[G1] episode {r.Episode} begins with {BoxTag(r.Box)} ({2f * Math.Max(m_Boxes[r.Box].Half.X, m_Boxes[r.Box].Half.Y):F2} m wide, {m_Mujoco!.GetBodyMass(m_Boxes[r.Box].Body):F2} kg), start moved {r.Offset.X:F3} m down the belt, {r.Offset.Y:F3} m across"
             );
         }
 
@@ -233,7 +253,7 @@ namespace G1Pipe
                 Path.Combine(r.Dir, $"episode_{r.Episode:D6}.json"),
                 FormattableString.Invariant(
                     $$"""
-                    {"episode": {{r.Episode}}, "seed": {{(RandomizeBox ? r.BaseSeed + r.Episode : "null")}}, "success": {{(
+                    {"episode": {{r.Episode}}, "seed": {{r.BaseSeed + r.Episode}}, "success": {{(
                         success ? "true" : "false"
                     )}}, "fail_reason": "{{r.FailReason.Replace("\\", "/").Replace("\"", "'")}}",
                      "box": {"tag": "{{BoxTag(r.Box)}}", "width": {{Math.Max(
@@ -247,7 +267,7 @@ namespace G1Pipe
                     ):F4}}},
                      "box_start": {{V(r.BoxStart)}}, "robot_start": {{V(
                         r.RobotStart
-                    )}}, "perturbation": "none",
+                    )}}, "perturbation": "none", "start_offset": [{{r.Offset.X:F4}}, {{r.Offset.Y:F4}}],
                      "release_error": {"height": null, "planar": {{planar}}}, "max_slip": null, "max_wrist_dev_deg": null, "seconds": {{r.Time:F2}}}
 
                     """

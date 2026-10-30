@@ -197,10 +197,6 @@ namespace G1Pipe
         private const float k_OverTableInset = 0.05f; // m in from the table top's edges the box centre must be to go straight down
         private const float k_HeadBottom = 0.30f,
             k_HeadFront = 0.08f; // m over the pelvis the head starts (MJCF head mesh 0.33, less a margin); m ahead of the pelvis its front is
-        private const float k_FingerTip = 0.09f,
-            k_ParkClear = 0.04f,
-            k_ParkMin = 0.05f; // m the straight fingertips reach ahead of the grasp site; m a parked hand keeps them behind a passing box; m ahead of the pelvis a parked hand stays at least
-        private const float k_ParkSpeed = 0.05f; // m/s a hand parked through the catch moves at most
         private const float k_FoldSmooth = 0.8f,
             k_BoxNear = 0.35f; // s lag of a folded hand behind its (swaying, body-relative) fold point; m, hands this close to a box take the safe climb
         private const float k_MinSegment = 0.5f,
@@ -1496,19 +1492,7 @@ namespace G1Pipe
         private bool Parked(Arm a) => m_Phase == Phase.Catch && (a != Stopper || m_Step == 0);
 
         // Catch pose: the stopper's palm on the stop spot of the box's downhill face (m_Center = the box centre there) once it goes; parked hands folded.
-        private Vector3 CatchPose(Arm a) => Parked(a) ? ParkPose(a) : m_StopCmd;
-
-        // A hand parked through the catch: the fold point, pulled back so its fingertips (k_FingerTip ahead of the grasp site) stay
-        // k_ParkClear behind the passing box's near face - a tall box slid into the parked right hand and was pushed further out.
-        private Vector3 ParkPose(Arm a)
-        {
-            float near =
-                Vector3.Dot(Flat(BoxCenter(m_Box) - Pelvis()), Heading())
-                - HalfExtent(m_Box, Heading());
-            Vector3 f = FoldOffset;
-            f.X = Mathf.Clamp(near - k_FingerTip - k_ParkClear, k_ParkMin, f.X);
-            return BodyPoint(Mirror(f, a.Side));
-        }
+        private Vector3 CatchPose(Arm a) => Parked(a) ? Fold(a) : m_StopCmd;
 
         // The stopper's target: HandTarget with the palm centred on the box's mid-height (a hit above the centre of mass twists the box away),
         // its lower edge never under BeltClearance.
@@ -2950,9 +2934,8 @@ namespace G1Pipe
             m_ChuteTop.Y
             - (m_ChuteN.X * (p.X - m_ChuteTop.X) + m_ChuteN.Z * (p.Z - m_ChuteTop.Z)) / m_ChuteN.Y;
 
-        // Wrist servo: turns each gripping hand toward its zero-pose frame on the grip axes - fingers (X) along forward, Y along the squeeze
-        // axis, so the left palm (-Y) and right palm (+Y) face the box. Closed on the measured hand frame, whatever the IK does. A hand not
-        // gripping (or parked through the catch) isn't steered: its wrist eases back to neutral.
+        // Wrist servo: turns each hand toward its zero-pose frame on the grip axes - fingers (X) along forward, Y along the squeeze axis, so the
+        // left palm (-Y) and right palm (+Y) face the box; heading axes when not gripping (and for the catch's parked hand). Closed on the measured hand frame, whatever the IK does.
         // A hand still climbing out from low down keeps its wrist still (turning there would swing the fingers into the belt); LockWrists keeps both still always.
         // Once the grip is confirmed (until Release) the box fixes the hands' orientation, so the wrists hold the angles they had then: steering on
         // only winds the command up to the joint limit, pinning the actuator at its torque limit with no stiffness or damping left to stop the box swinging.
@@ -2968,17 +2951,7 @@ namespace G1Pipe
                             a.WristAdr[i]
                         );
                 a.WristHeld = held;
-                if (a.Joints.Length < 7)
-                    continue;
-                if (!LockWrists && (!grip || Parked(a)))
-                {
-                    for (int i = 0; i < 3; i++) // no steering: back to neutral (steering a parked hand wound its wrist to 73-93 deg)
-                        a.Joints[4 + i].Value = a.WristQ[i] =
-                            a.WristQ[i]
-                            - Mathf.Clamp(a.WristQ[i], -k_WristRate * ts, k_WristRate * ts);
-                    continue;
-                }
-                if (a.Rising || SiteWorld(a.Site).Y < a.Cmd.Y - k_Snap)
+                if (a.Joints.Length < 7 || a.Rising || SiteWorld(a.Site).Y < a.Cmd.Y - k_Snap)
                     continue;
                 Vector3 x = grip && !Parked(a) ? (m_Carrying ? BodyDir(m_Fwd) : m_Fwd) : Heading(),
                     y = LeftOf(x),
@@ -3067,17 +3040,15 @@ namespace G1Pipe
                     a.T = a.Tau = 0f;
                 }
                 if (
-                    Parked(a)
-                    || !grip && !newMove && a.Tau >= a.T && target.Method.Name == nameof(Fold)
+                    !grip
+                    && !newMove
+                    && a.Tau >= a.T
+                    && (target.Method.Name == nameof(Fold) || Parked(a))
                 )
                 {
                     // Folded: follow the body's fold point with a k_FoldSmooth lag - drift is followed, bounces never reach the arms (and never
-                    // come back through them into the walker), and no path is re-planned. A hand parked through the catch also moves no faster
-                    // than k_ParkSpeed: a quick parked arm shook the body while the other hand waited for the box.
-                    Vector3 step = (goal - a.Cmd) * (1f - (float)Math.Exp(-m_Dt / k_FoldSmooth));
-                    if (Parked(a) && step.Length() > k_ParkSpeed * m_Dt)
-                        step *= k_ParkSpeed * m_Dt / step.Length();
-                    a.Cmd += step;
+                    // come back through them into the walker), and no path is re-planned.
+                    a.Cmd += (goal - a.Cmd) * (1f - (float)Math.Exp(-m_Dt / k_FoldSmooth));
                     a.Direct = true;
                     a.Rising = false;
                     SendTarget(a);
