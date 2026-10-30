@@ -33,3 +33,6 @@ TurnToTable → WalkToTable → FaceTable → Place → Release → Retract. Any
 **Edit, check, run:** edit here, then run `./sync_engine.sh` from the repo root. It builds against the engine's DLLs and, only if
 the build is clean, copies these files to `g1_sort/Assets/Scripts/Client/Source/G1BoxGrasp/`. The engine copy differs only
 in `ArmReach` (0.65 there, 0.50 here). Then open the editor or press Play.
+
+**Function map:** `g1_grasp_map.html` in the repo root shows every function with its calls, callers, engine API, settings,
+state and failure checks. It is generated from this folder; refresh it with `python3 tools/make_map.py` after code changes.
