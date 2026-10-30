@@ -53,9 +53,9 @@
 </div>
 
 <div class="box warn"><b class="t">The C# side</b>
-Two C# pieces from the plan live next to <code>g1_grasp.cs</code>, and these scripts depend on their output.
+Two C# pieces from the plan live with the controller in <code>src/</code>, and these scripts depend on their output.
 <ul>
-<li><b>The episode runner</b> (<code>g1_grasp.episodes.cs</code>, inspector group <i>Recording</i>) records each run as one Observer episode, resets the scene between episodes and writes the sidecar described in section&nbsp;3.3. Working in the engine since 30 October 2026 (section&nbsp;9.2). No randomization yet: every episode after a reset is identical.</li>
+<li><b>The episode runner</b> (<code>src/Recording/Episodes.cs</code>, inspector group <i>Recording</i>) records each run as one Observer episode, resets the scene between episodes and writes the sidecar described in section&nbsp;3.3. Working in the engine since 30 October 2026 (section&nbsp;9.2). No randomization yet: every episode after a reset is identical.</li>
 <li><b><code>G1ActAgent.cs</code></b> publishes and accepts the vectors described in section&nbsp;8. Not written yet.</li>
 </ul>
 <code>make_fake_session.py</code> stands in for the recording side in the self-test.</div>

@@ -48,12 +48,13 @@
 <body>
 
 <h1>G1 Box Grasp: conveyor catch and two-hand grasp</h1>
-<div class="meta">Work report for the LuckyEngine G1 controller <code>g1_grasp.cs</code> (namespace <code>G1Pipe</code>, class <code>G1BoxGrasp</code>) &middot; covers 16&ndash;30 October 2026 &middot; repo <code>~/projects/robot_code/G1BoxGrasp</code>, engine project <code>~/Documents/LuckyEngine/Projects/g1_sort</code></div>
+<div class="meta">Work report for the LuckyEngine G1 controller <code>G1BoxGrasp</code> (<code>src/</code>, until 31 October the single file <code>g1_grasp.cs</code>) (namespace <code>G1Pipe</code>, class <code>G1BoxGrasp</code>) &middot; covers 16&ndash;30 October 2026 &middot; repo <code>~/projects/robot_code/G1BoxGrasp</code>, engine project <code>~/Documents/LuckyEngine/Projects/g1_sort</code></div>
 
 <div class="box">
 <b class="t">Summary</b>
 The controller started this period as a pick-and-place pipeline for a box <em>resting</em> on the conveyor. The conveyor was turned into a gravity slide and a <strong>catch</strong> was built: the left hand predicts the sliding box, waits in its path and gives with it (sections&nbsp;5&ndash;8). The grip then took most of the work. A high-priority hand friction class and <code>noslip_iterations=20</code> stopped the box creeping out of the hands, and the carry became walker-only (back off, turn in place, walk straight), so by 25 October the whole pipeline worked for the 0.3&nbsp;m, 1&nbsp;kg box (commit <code>0ec78d3</code>). Making it work for other sizes and weights (sections&nbsp;13&ndash;17) needed a palm-led squeeze with capped palm and finger forces, so the 5&nbsp;N&middot;m wrists are never twisted open. It also needed a <strong>waist lock</strong>: the walker's waist yaw was swinging the torso &plusmn;25&deg; at about 2&nbsp;Hz in every turn and flinging the box. On top of those came slower carry speeds, a box raised clear of the table, a centring push that puts any caught box on the body's centre line, and elbows eased outward. On 27 October boxes of 0.2, 0.3 (1&nbsp;kg and 2&nbsp;kg) and 0.4&nbsp;m were caught, carried and placed. The latest 0.1&nbsp;m run reached the table but slipped out as Place began. The remaining weak spots are slow placing (the turns at the table take two tries), a heavy (2&nbsp;kg) box sinking 4.4&nbsp;cm of the 5&nbsp;cm allowed, and the narrow box's grip. Section&nbsp;18 is the plan for the next size and weight tests.
 <p style="margin-top:6pt">From 28 October (sections&nbsp;20&ndash;28) the work moved to heavier and taller boxes and then to collecting imitation-learning data. Heavy boxes walk the body backwards, so the box is now held in pelvis coordinates from the lift, a calm station hold steps the body back onto its spot, the waist stays locked through Place, tall boxes are carried clear of the head, and placing simply lets go over the table (commit <code>1515f8d</code> &ldquo;Good enough&rdquo;). An ACT data pipeline was planned and written. On 30 October recording started working: LuckyEngine 2026.1.2 has no Custom Schema recorder mode, so the pipeline reads <em>MujocoFull</em> sessions and derives the IMU from the pelvis pose; an episode runner records each run, writes a sidecar of what the recorder can't see, and resets the scene so every episode starts exactly as Play does (it took four attempts, the key being a fresh walker on the same frame of the run). Box attributes are randomised with a pool of six boxes dealt like cards, plus a 0&ndash;10&nbsp;cm start jitter. Recording exposed a DragIn runaway and a waist lock that snapped the torso straight; both were fixed. Several grasp tweaks were tried and reverted, and the grasp code is back at the <code>82bc6f9</code> baseline. The final 12-episode recording succeeded 8 times with no squeeze failures; 0.2&nbsp;m boxes slipping at the start of the carry turn are the main remaining problem.</p>
+<p style="margin-top:6pt">A second 12-episode session the same evening also succeeded 8 times, so the two randomised sessions give 16 good demonstrations (27,067 frames, 9 minutes at 50&nbsp;Hz) that pass every QA check and convert cleanly into a LeRobot dataset. The 1&nbsp;kg 0.2&nbsp;m box failed all 4 of its recorded attempts but was placed in a plain run. Section&nbsp;28 traces this to the recorder's reset leaving the robot 3&ndash;5&nbsp;cm further from the box: the arm is more stretched, the thumb base no longer presses on the box by accident, and the grip loses the box in the fast in-place turn. Sections&nbsp;29 and 30 describe the whole data pipeline, from the engine to a trained ACT policy, and how the data will be used: ACT replaces the scripted upper body (arms, hands, waist, waist lock and the walker command) and the RL walker keeps the legs. Section&nbsp;31 lists what is done, what is still open and the next steps, and section&nbsp;32 sums up.</p>
 </div>
 
 <div class="toc">
@@ -84,14 +85,20 @@ The controller started this period as a pick-and-place pipeline for a box <em>re
 <div>25. Controller changes found while recording</div>
 <div>26. Determinism and why one run is not enough</div>
 <div>27. Recording results, 30 October</div>
-<div>28. Commits, state and known issues on 30 October</div>
+<div>28. The 1&nbsp;kg 0.2&nbsp;m box: plain run against recording</div>
+<div>29. The data pipeline end to end</div>
+<div>30. Using the data to train and run ACT</div>
+<div>31. Commits, state and known issues at submission</div>
+<div>32. Conclusion</div>
 <div>Appendix A. Inspector fields added</div>
 <div>Appendix B. Key formulas</div>
+<div>Appendix C. Data layouts</div>
+<div>Appendix D. Command reference</div>
 </div>
 
 <h2>1. Project, tools and workflow</h2>
 <p><strong>Robot and engine.</strong> Unitree G1 with three-finger hands (<code>ContentVault/Robots/UnitreeG1ThreeFingers/g1_three_fingers.xml</code>) in LuckyEngine (Hazel editor with MuJoCo physics). The legs and waist are run by learned policies in slots: walker&nbsp;=&nbsp;1, rotator&nbsp;=&nbsp;2. The arms use a motion-graph LimbIK whose end effectors are <code>left_grasp_site</code> and <code>right_grasp_site</code>. The IK owns the shoulders and the elbow. The script owns the wrists (a closed-loop wrist servo) and the thumb and finger bases.</p>
-<p><strong>Files.</strong> The controller is a single file, <code>g1_grasp.cs</code> (about 3,260 lines, 83 inspector fields). It's developed in the repo and copied into the engine project's <code>Assets/Scripts/Client/Source/</code>. The only difference between the two copies is <code>ArmReach</code> (0.50 in the repo, 0.65 in the engine). The phase diagram is <code>g1_grasp_flow.svg</code>. Logs are in <code>/tmp/LuckyEngine/Logs/APP.log</code>, and every controller line starts with <code>[G1]</code>.</p>
+<p><strong>Files.</strong> The controller is a single file, <code>g1_grasp.cs</code> (about 3,260 lines and 83 inspector fields at the start of this period; 3,721 lines and 92 fields at submission, with the episode runner in <code>g1_grasp.episodes.cs</code>, section&nbsp;23). On 31 October the class was split, unchanged, into 22 partial-class files by topic under <code>src/</code> (<code>Config/</code> inspector fields, <code>Core/</code> state and phase machine, <code>Phases/</code> one file per task phase, <code>Hands/</code>, <code>Body/</code>, <code>World/</code>, <code>Diagnostics/</code>, <code>Recording/</code>; map in <code>src/README.md</code>); the old and new builds were compared member by member and are identical. <code>sync_engine.sh</code> builds it and mirrors it into the engine's <code>Source/G1BoxGrasp/</code>. It's developed in the repo and copied into the engine project's <code>Assets/Scripts/Client/Source/</code>. The only difference between the two copies is <code>ArmReach</code> (0.50 in the repo, 0.65 in the engine). The phase diagram is <code>g1_grasp_flow.svg</code>. Logs are in <code>/tmp/LuckyEngine/Logs/APP.log</code>, and every controller line starts with <code>[G1]</code>.</p>
 <p><strong>Workflow used throughout.</strong> Each change was edited in the repo, formatted with <code>csharpier</code>, compile-checked with <code>dotnet build G1BoxGrasp.csproj</code> against the engine's <code>Hazel-ScriptCore.dll</code> (every build ended with 0 errors), and synced to the engine copy. The user then ran the scene, and the next step was decided from the log. Analysis-only requests were answered without code changes. Commits were made only when asked.</p>
 
 <h2>2. The pipeline and its phase loop</h2>
@@ -560,7 +567,7 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tbody>
 <tr><td><code>plans/G1_ACT_data_pipeline_plan.html</code></td><td>The plan: what ACT controls (31 upper-body actuators + waist lock + walker command; the RL walker keeps the legs), what the engine records and what it cannot (hence a script &ldquo;sidecar&rdquo;), the episode loop, randomisation and recovery data, training settings, closed-loop evaluation over gRPC, risks and milestones.</td></tr>
 <tr><td><code>data_pipeline/</code></td><td><code>common.py</code> (layouts, readers), <code>qa.py</code> (integrity checks), <code>le2act.py</code> (session + sidecar &rarr; LeRobot&nbsp;3.0 dataset), <code>train_act.sh</code> (smoke / pilot / full), <code>eval_act.py</code> (closed-loop through the <code>luckyrobots</code> Session), <code>make_fake_session.py</code> and <code>tests/selftest.sh</code> (the whole chain without the engine), <code>README.html</code> (code guide). Python env in <code>data_pipeline/.venv</code> (lerobot 0.6.1, luckyrobots 0.5.0, torch 2.11 + CUDA on the GTX&nbsp;1650).</td></tr>
-<tr><td><code>docs/ACT_explained.html</code></td><td>An explainer of ACT read from the ACT, Mobile ALOHA, HumanPlus, ALOHA Unleashed, Bidirectional Decoding and Real-Time Chunking papers and LeRobot's ACT code: action chunking, temporal ensembling, the CVAE, the network layer by layer, training settings, results and ablations, follow-ups, weaknesses and what it means for the G1 data. Not committed.</td></tr>
+<tr><td><code>docs/ACT_explained.html</code></td><td>An explainer of ACT read from the ACT, Mobile ALOHA, HumanPlus, ALOHA Unleashed, Bidirectional Decoding and Real-Time Chunking papers and LeRobot's ACT code: action chunking, temporal ensembling, the CVAE, the network layer by layer, training settings, results and ablations, follow-ups, weaknesses and what it means for the G1 data. Committed in <code>2b88c01</code>.</td></tr>
 </tbody>
 </table>
 <p><b>The vectors.</b> <code>observation.state</code> = 37: the 31 upper-body joint angles (14 arm, 14 hand, 3 waist) and 6 IMU values. <code>action</code> = 35: the 31 upper-body actuator commands, then <code>waist_lock</code> and the walker command <code>cmd_vx, cmd_vy, cmd_yaw</code>. The phase label (catch, grasp, lift, carry, place, retract) is stored but is not a policy input.</p>
@@ -571,7 +578,7 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <table>
 <thead><tr><th style="width:24%">MujocoFull column</th><th>Contents</th><th style="width:30%">Used as</th></tr></thead>
 <tbody>
-<tr><td><code>observation.state</code> (57)</td><td>The whole qpos, named in <code>meta/info.json</code>: the pelvis free joint (<code>floating_base_joint_x &hellip; _qz</code>), all 43 joints, then each free box (<code>&lt;Tag&gt;_x &hellip; _qz</code>; 7 more per box).</td><td><code>q.&lt;joint&gt;</code>; <code>pose.pelvis</code> and <code>pose.box.&lt;Tag&gt;</code> (privileged, analysis only); the pelvis IMU.</td></tr>
+<tr><td><code>observation.state</code> (7 + 43 + 7 per box: 57 with one box, 92 with the six-box pool)</td><td>The whole qpos, named in <code>meta/info.json</code>: the pelvis free joint (<code>floating_base_joint_x &hellip; _qz</code>), all 43 joints, then each free box (<code>&lt;Tag&gt;_x &hellip; _qz</code>; 7 more per box).</td><td><code>q.&lt;joint&gt;</code>; <code>pose.pelvis</code> and <code>pose.box.&lt;Tag&gt;</code> (privileged, analysis only); the pelvis IMU.</td></tr>
 <tr><td><code>action</code> (43)</td><td>Every actuator's ctrl by joint name. The walker drives legs and waist through its own channel, so those read 0; the script's arm, hand and (locked) waist commands are exact.</td><td><code>u.&lt;joint&gt;</code>: the first 31 actions.</td></tr>
 <tr><td><code>frame_flags</code></td><td>Bits <code>new_policy_step</code>, <code>post_reset</code>.</td><td>QA: a reset may appear only on frame 0.</td></tr>
 </tbody>
@@ -585,7 +592,7 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <p><b>Viewer: <code>inspect_session.py</code>.</b> One self-contained HTML page per session (written to <code>~/Documents/LuckyEngine/Inspect/</code>): per-episode checks marked pass, warning or fail (missing values, frame gaps, tick spacing, resets inside an episode, commands outside the joint ranges, one video frame per row, frozen and black frames, sidecar length, action alignment and how well it is pinned down, waist lock values, phases present and in order, expert outcome), the phase timeline, each camera's frame at every phase start, and hover charts of every joint's angle against its command, the walker command, waist lock, IMU, and the box and pelvis paths. Its frozen-frame threshold was tightened to 0.02 per pixel after it flagged the robot standing still: a live render never changed by less than 0.05.</p>
 
 <h2>23. The episode runner and the reset between episodes</h2>
-<p><code>g1_grasp.episodes.cs</code> is a partial-class file next to <code>g1_grasp.cs</code>; the controller itself got only a few hooks (<code>partial</code>, <code>RecordTick</code> at the end of <code>OnUpdate</code>, <code>StartEpisodeState</code> on Start frames, the first failure reason, and <code>Repeat = RepeatLoop &amp;&amp; !RecordEpisodes</code> so a run ends instead of looking for the next box).</p>
+<p><code>g1_grasp.episodes.cs</code> (now <code>src/Recording/Episodes.cs</code>) is a partial-class file next to <code>g1_grasp.cs</code>; the controller itself got only a few hooks (<code>partial</code>, <code>RecordTick</code> at the end of <code>OnUpdate</code>, <code>StartEpisodeState</code> on Start frames, the first failure reason, and <code>Repeat = RepeatLoop &amp;&amp; !RecordEpisodes</code> so a run ends instead of looking for the next box).</p>
 <ul>
 <li><b>Per episode.</b> <code>Observer.BeginEpisode</code> once the robot is set up; each tick a sidecar row (<code>frame, sim_time, task_index, waist_lock, cmd_vx, cmd_vy, cmd_yaw, probe_ctrl</code>) and <code>Observer.SetCurrentTaskIndex</code>; Done ends it as a success, Failed or <em>EpisodeTimeout</em> (80&nbsp;s) as a failure; a JSON header with the seed, box tag, size and mass, start pose, start offset, release error and seconds.</li>
 <li><b>Between episodes.</b> Every private field of the controller is reset by copying it from a fresh instance (reflection; the inspector's public fields and the recorder state are kept), and the next frame is a Start frame again.</li>
@@ -688,14 +695,309 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tbody>
 <tr><td>0.30&nbsp;m, 0.67&nbsp;kg (<code>W30_L</code>)</td><td class="n">2/2</td><td>&mdash;</td></tr>
 <tr><td>0.30&nbsp;m, 1.48&nbsp;kg (<code>W30_H</code>)</td><td class="n">2/2</td><td>&mdash;</td></tr>
-<tr><td>0.20&nbsp;m, 0.45&nbsp;kg (<code>W20_L</code> and <code>W40_L</code> at 0.2&nbsp;m)</td><td class="n">4/5</td><td>One slipped 5.5&nbsp;cm at the start of the turn to the table.</td></tr>
+<tr><td>0.20&nbsp;m, 0.45&nbsp;kg (<code>W20_L</code> and <code>W40_L</code> at 0.2&nbsp;m)</td><td class="n">3/4</td><td>One slipped 5.5&nbsp;cm at the start of the turn to the table.</td></tr>
 <tr><td>0.40&nbsp;m, 1.97&nbsp;kg (<code>W40_H</code>)</td><td class="n">1/2</td><td>One slipped 5.2&nbsp;cm in Place.</td></tr>
 <tr><td>0.20&nbsp;m, 0.99&nbsp;kg (<code>W20_H</code>)</td><td class="n">0/2</td><td>Both slipped 5&ndash;6&nbsp;cm at the start of the turn.</td></tr>
 </tbody>
 </table>
 <p>Mean episode 29.5&nbsp;s: catch 7.3&nbsp;s, grasp 4.0&nbsp;s, lift 2.1&nbsp;s, carry 12.0&nbsp;s, place 2.5&nbsp;s, retract 1.6&nbsp;s. Starts moved 0.2&ndash;9.8&nbsp;cm down the belt and up to 2&nbsp;cm across. Viewer page: <code>~/Documents/LuckyEngine/Inspect/inspect_session_2026-10-30_20-22-04.html</code>.</p>
+<h3>The repeat session (22:08, same build)</h3>
+<p>A second 12-episode session (<code>session_2026-10-30_22-08-44</code>, sidecars <code>run_20261030_220846</code>) was recorded with the same code and a new base seed (6421; episode <i>e</i> uses 6421with the same code and a new seed (6432)nbsp;+with the same code and a new seed (6432)nbsp;<i>e</i>). The scene also had its default <code>Camera</code> entity in the recorder's camera list, so this session has two video streams (<code>head_camera</code> and <code>Camera</code>, both 256&times;256). It ran from 22:08:46 to 22:17:38: 8&nbsp;min 52&nbsp;s of wall time for 368&nbsp;s of simulated time (about 0.7&times; real time, 44&nbsp;s per episode), 65&nbsp;MB on disk.</p>
+<table>
+<thead><tr><th>Ep</th><th>Box</th><th class="n">Start (down, across)</th><th class="n">Seconds</th><th>Outcome</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>W40_H, 0.40&nbsp;m, 1.97&nbsp;kg</td><td class="n">2.2, 1.4&nbsp;cm</td><td class="n">35.7</td><td>placed</td></tr>
+<tr><td>1</td><td>W20_L, 0.20&nbsp;m, 0.45&nbsp;kg</td><td class="n">7.4, &minus;1.4&nbsp;cm</td><td class="n">34.6</td><td>placed</td></tr>
+<tr><td>2</td><td>W40_L (at 0.2&nbsp;m), 0.45&nbsp;kg</td><td class="n">2.6, &minus;0.2&nbsp;cm</td><td class="n">31.5</td><td>placed</td></tr>
+<tr><td>3</td><td>W30_L, 0.30&nbsp;m, 0.67&nbsp;kg</td><td class="n">7.9, 1.0&nbsp;cm</td><td class="n">25.6</td><td>slipped 5.0&nbsp;cm in Place</td></tr>
+<tr><td>4</td><td>W30_H, 0.30&nbsp;m, 1.48&nbsp;kg</td><td class="n">3.1, &minus;1.9&nbsp;cm</td><td class="n">31.9</td><td>placed</td></tr>
+<tr><td>5</td><td>W20_H, 0.20&nbsp;m, 0.99&nbsp;kg</td><td class="n">8.3, &minus;0.7&nbsp;cm</td><td class="n">18.5</td><td>slipped 6.4&nbsp;cm in TurnToTable</td></tr>
+<tr><td>6</td><td>W20_L</td><td class="n">3.5, 0.5&nbsp;cm</td><td class="n">37.1</td><td>placed</td></tr>
+<tr><td>7</td><td>W40_H</td><td class="n">8.8, 1.6&nbsp;cm</td><td class="n">30.1</td><td>slipped 5.8&nbsp;cm in Place</td></tr>
+<tr><td>8</td><td>W30_L</td><td class="n">4.0, &minus;1.2&nbsp;cm</td><td class="n">32.5</td><td>placed</td></tr>
+<tr><td>9</td><td>W30_H</td><td class="n">9.2, 0.0&nbsp;cm</td><td class="n">36.8</td><td>placed</td></tr>
+<tr><td>10</td><td>W40_L (at 0.2&nbsp;m)</td><td class="n">4.4, 1.2&nbsp;cm</td><td class="n">35.0</td><td>placed</td></tr>
+<tr><td>11</td><td>W20_H</td><td class="n">9.7, &minus;1.7&nbsp;cm</td><td class="n">18.7</td><td>slipped 5.2&nbsp;cm in TurnToTable</td></tr>
+</tbody>
+</table>
+<p>QA (<code>qa.py</code>): 0 errors; all 12 episodes have the ctrl one row after the command (probe errors 1.3&ndash;6.5&times;10<sup>&minus;8</sup>&nbsp;rad); mean episode 30.7&nbsp;s: catch 7.2&nbsp;s, grasp 4.1&nbsp;s, lift 2.1&nbsp;s, carry 13.3&nbsp;s, place 2.7&nbsp;s, retract 1.3&nbsp;s. Viewer page: <code>~/Documents/LuckyEngine/Inspect/inspect_session_2026-10-30_22-08-44.html</code> (episode 11 is marked as a warning because the expert failed).</p>
+<h3>Both randomised sessions together</h3>
+<table>
+<thead><tr><th>Box</th><th class="n">20:22</th><th class="n">22:08</th><th class="n">Together</th><th>How the failures happened</th></tr></thead>
+<tbody>
+<tr><td>0.30&nbsp;m, 1.48&nbsp;kg (W30_H)</td><td class="n">2/2</td><td class="n">2/2</td><td class="n"><b>4/4</b></td><td>&mdash;</td></tr>
+<tr><td>0.20&nbsp;m, 0.45&nbsp;kg (W20_L, W40_L at 0.2&nbsp;m)</td><td class="n">3/4</td><td class="n">4/4</td><td class="n"><b>7/8</b></td><td>One slip at the start of the turn.</td></tr>
+<tr><td>0.30&nbsp;m, 0.67&nbsp;kg (W30_L)</td><td class="n">2/2</td><td class="n">1/2</td><td class="n"><b>3/4</b></td><td>One slip in Place.</td></tr>
+<tr><td>0.40&nbsp;m, 1.97&nbsp;kg (W40_H)</td><td class="n">1/2</td><td class="n">1/2</td><td class="n"><b>2/4</b></td><td>Both in Place, 5.2 and 5.8&nbsp;cm.</td></tr>
+<tr><td>0.20&nbsp;m, 0.99&nbsp;kg (W20_H)</td><td class="n">0/2</td><td class="n">0/2</td><td class="n"><b>0/4</b></td><td>All in TurnToTable, 5&ndash;6.4&nbsp;cm (section&nbsp;28).</td></tr>
+<tr><td><b>All</b></td><td class="n">8/12</td><td class="n">8/12</td><td class="n"><b>16/24</b></td><td>No failure before the lift: every catch and squeeze succeeded.</td></tr>
+</tbody>
+</table>
+<p>The failures are of two kinds only: the narrow heavy box slipping in the in-place turn, and the 0.3&ndash;0.4&nbsp;m boxes slipping as they are lowered in Place. How far down the belt the box started does not predict either: failures started 4.1&ndash;9.7&nbsp;cm down the belt, successes 0.2&ndash;9.8&nbsp;cm.</p>
 
-<h2>28. Commits, state and known issues on 30 October</h2>
+<h2 class="pb">28. The 1&nbsp;kg 0.2&nbsp;m box: plain run against recording</h2>
+<p>After the 22:08 session, two plain (not recorded) runs were made with <code>Box_W40_L</code> resized to 0.2&nbsp;m: at 22:23 at density 100 (0.45&nbsp;kg), at 22:24 at density 220 (0.99&nbsp;kg). In the scene file this box's collider is then identical to <code>W20_H</code> (density 220, friction (0.01,&nbsp;0.05,&nbsp;0), condim&nbsp;4, scale 0.15&nbsp;&times;&nbsp;0.15&nbsp;&times;&nbsp;0.2). Both runs placed the box (6.0 and 7.5&nbsp;cm from the table spot). The same 1&nbsp;kg box had failed all 4 of its recorded attempts, each slipping 5&ndash;6.4&nbsp;cm out of the hands in TurnToTable. The question was why the plain run worked.</p>
+<h3>28.1 What differs: the stance, then the arm, then the thumb</h3>
+<table>
+<thead><tr><th style="width:34%">At the first tick of the lift (right arm)</th><th class="n">Plain run, 0.99&nbsp;kg</th><th class="n">Recorded ep&nbsp;11</th><th class="n">Recorded ep&nbsp;5</th></tr></thead>
+<tbody>
+<tr><td>Pelvis x when the pre-grasp starts</td><td class="n">0.338</td><td class="n">0.314</td><td class="n">0.294</td></tr>
+<tr><td>Box centre ahead of the pelvis</td><td class="n">0.32&nbsp;m</td><td class="n">0.36&nbsp;m</td><td class="n">0.37&nbsp;m</td></tr>
+<tr><td>Right arm reach when it reaches in</td><td class="n">73&nbsp;%</td><td class="n">78&nbsp;%</td><td class="n">79&nbsp;%</td></tr>
+<tr><td>Right grasp site ahead of the body</td><td class="n">0.281&nbsp;m</td><td class="n">0.321&nbsp;m</td><td class="n">0.337&nbsp;m</td></tr>
+<tr><td>Shoulder pitch, roll, yaw; elbow</td><td class="n">5, &minus;15, 26; 14&deg;</td><td class="n">&minus;4, &minus;15, 22; 19&deg;</td><td class="n">&minus;6, &minus;14, 20; 20&deg;</td></tr>
+<tr><td>Wrist roll, pitch, yaw</td><td class="n">12, &minus;29, &minus;23&deg;</td><td class="n">16, &minus;27, &minus;18&deg;</td><td class="n">16, &minus;26, &minus;17&deg;</td></tr>
+<tr><td>Palm angle off the box face</td><td class="n">1&deg;</td><td class="n">2&deg;</td><td class="n">2&deg;</td></tr>
+<tr><td>Right thumb force, lift to the start of the turn</td><td class="n">24&ndash;37&nbsp;N</td><td class="n">0 (one 8&nbsp;N sample)</td><td class="n">0 (one 8&nbsp;N sample)</td></tr>
+<tr><td>Grip at the end of the squeeze, palm L/R; fingers L/R</td><td class="n">15.4/24.1; 13.7/28.8&nbsp;N</td><td class="n">11.0/9.0; 20.1/22.3&nbsp;N</td><td class="n">15.6/15.5; 15.2/15.1&nbsp;N</td></tr>
+<tr><td>Pelvis yaw at the start of the turn</td><td class="n">6.4&deg;</td><td class="n">10.8&deg;</td><td class="n">10.9&deg;</td></tr>
+<tr><td>Outcome</td><td class="n">placed</td><td class="n">slipped 5.2&nbsp;cm</td><td class="n">slipped 6.4&nbsp;cm</td></tr>
+</tbody>
+</table>
+<ol>
+<li><b>The body stands further back after the recorder's reset.</b> Everyone starts at the same pelvis x (&minus;0.004); one second into the catch all runs are at x&nbsp;=&nbsp;0.27. Then the body leans and settles: at 0.338 in both plain runs, at 0.294&ndash;0.327 in all 12 recorded episodes of the 22:08 session, episode&nbsp;0 included (0.304). The plain run starts from the editor pose (pelvis 0.793&nbsp;m high) with a walker that has never run; every recorded episode starts from the restored snapshot (0.790&nbsp;m) after the walker has been switched off and on and its PD targets reseeded. The box always stops at the same fixed spot on the belt, so in the recorded runs it ends up 3.5&ndash;5&nbsp;cm further out from the body.</li>
+<li><b>A further reach bends the arm differently.</b> The hands go to the same points on the box, so the right arm must reach 4&ndash;6&nbsp;cm further: the shoulder pitches about 10&deg; further forward, the elbow straightens 5&ndash;6&deg;, the shoulder yaw drops 4&ndash;6&deg;. <code>OrientWrists</code> then turns the palm flat onto the box face, and does so equally well in every run (1&ndash;2&deg; off). But keeping the palm flat leaves one angle free: how the hand turns about the palm's own normal, like a hand rotating while pressed flat on a wall. That angle is whatever the arm gives, and with the forearm pointing differently the wrist ends up about 5&deg; different in roll and yaw.</li>
+<li><b>The thumb base touches the box only by accident.</b> The thumb joints are never closed during the hold (0.00&nbsp;rad in every run). The only thumb contact is <code>right_hand_thumb_0_link</code>, the thumb's base, a knob at the heel of the palm. In the plain run the hand's turn on the face puts that knob on the box, the squeeze pushes it in, and it adds 24&ndash;37&nbsp;N for most of the lift, pull-in and back-off. In the recorded runs the knob sits just past the face and the hand closes without it.</li>
+<li><b>The turn is where it breaks.</b> TurnToTable turns in place on the walker at <em>CarryTurnCmd</em> = 2&nbsp;rad/s; the pelvis yaw rate spikes to 1.6&nbsp;rad/s and the pelvis dips 3&nbsp;cm. About 25&deg; into the turn the hand forces drop in every heavy run. In the plain run they fell to 11&nbsp;N (left) and 20&nbsp;N (right), the left palm came off its face and closed back in at 43&nbsp;N, and the box stayed. In episode&nbsp;11 they fell to 31&nbsp;N and 17&nbsp;N, the box shifted 6&nbsp;cm in the hands, the slip boost rose to 1.64 and the box was lost at 70&deg;.</li>
+</ol>
+<div class="box warn"><b class="t">What this means</b>The plain run nearly failed too. The 1&nbsp;kg box in the narrowest grip (0.2&nbsp;m, needing 9.7&nbsp;N per palm against 4.4&nbsp;N for the 0.45&nbsp;kg box) has almost no margin in a 2&nbsp;rad/s turn, and the plain run's extra margin came from a contact the controller does not plan. Any small change in the stance, such as the recorder's reset, takes it away. The light 0.2&nbsp;m boxes do not need that margin: 7/8 recorded successes.</div>
+<h3>28.2 What was ruled out</h3>
+<ul>
+<li><b>The box itself.</b> <code>W20_H</code> and the resized <code>W40_L</code> have the same collider, density, friction and size; the required squeeze is 9.7&nbsp;N per palm in both.</li>
+<li><b>The start on the belt.</b> The plain run's box starts at its editor spot (0.626, 0.703, 1.023), 4.5&nbsp;cm further up the belt than <em>BoxStart</em>, and recorded starts are 0&ndash;10&nbsp;cm further down. Across the 24 recorded episodes the start offset predicts neither the stance (pelvis x does not grow or shrink with it) nor the outcome.</li>
+<li><b>The catch.</b> The box hit the palm at 0.37&nbsp;m/s with 32.7&nbsp;N in the plain run and at 0.23&ndash;0.35&nbsp;m/s with 11&ndash;29&nbsp;N in the recorded ones; all were centred to within 5&nbsp;mm of the body's centre line by a 13.5&ndash;14.4&nbsp;cm push.</li>
+</ul>
+<h3>28.3 Possible fixes (not made)</h3>
+<table>
+<thead><tr><th style="width:28%">Fix</th><th>Effect</th><th style="width:28%">Constraint</th></tr></thead>
+<tbody>
+<tr><td><b>Slower turn while holding a heavy box</b> (recommended), e.g. <em>CarryTurnCmd</em> 2 &rarr; about 1&nbsp;rad/s</td><td>Removes the yaw-rate spikes the slip comes from, in plain runs and recordings alike. Each turn of about 80&deg; takes about a second longer.</td><td>Carry code, not the grasp; allowed.</td></tr>
+<tr><td>Make the recorded start match Play</td><td>Gives back the 3&ndash;5&nbsp;cm and maybe the thumb contact; still relies on an unplanned contact.</td><td>Reset code; must keep episodes repeatable.</td></tr>
+<tr><td>Close the thumb deliberately in the hold</td><td>Makes the extra grip reliable.</td><td>Grasp code: only if asked (the <code>82bc6f9</code> baseline rule).</td></tr>
+</tbody>
+</table>
+
+<h2 class="pb">29. The data pipeline end to end</h2>
+<p>The pipeline turns runs of the scripted expert in LuckyEngine into a dataset that LeRobot's ACT trains on unchanged, and then runs the trained policy back in the same scene. Figure&nbsp;6 shows the stages; the table below says what each one reads, writes and checks.</p>
+<figure>
+<svg viewBox="0 0 680 168" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="9">
+  <defs><marker id="ar6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1f4e79"/></marker></defs>
+  <g fill="#e9edf2" stroke="#1f4e79" stroke-width="1">
+    <rect x="4" y="10" width="104" height="92" rx="4"/>
+    <rect x="118" y="10" width="104" height="42" rx="4"/><rect x="118" y="60" width="104" height="42" rx="4"/>
+    <rect x="232" y="10" width="104" height="92" rx="4"/>
+    <rect x="346" y="10" width="104" height="92" rx="4"/>
+    <rect x="460" y="10" width="104" height="92" rx="4"/>
+    <rect x="574" y="10" width="102" height="92" rx="4"/>
+  </g>
+  <g fill="#1a1a1a" text-anchor="middle">
+    <text x="56" y="26" font-weight="700">1 Expert</text><text x="56" y="41">G1BoxGrasp (src/)</text><text x="56" y="53">+ Recording/</text><text x="56" y="67">deal, jitter, reset</text><text x="56" y="79">catch &#8594; place</text><text x="56" y="91">50 Hz, LuckyEngine</text>
+    <text x="170" y="26" font-weight="700">2a Observer</text><text x="170" y="38">MujocoFull parquet</text><text x="170" y="48">+ MP4 per camera</text>
+    <text x="170" y="76" font-weight="700">2b Sidecar</text><text x="170" y="88">CSV per tick</text><text x="170" y="98">+ JSON header</text>
+    <text x="284" y="26" font-weight="700">3 Check</text><text x="284" y="41">qa.py</text><text x="284" y="53">inspect_session.py</text><text x="284" y="67">alignment, ranges,</text><text x="284" y="79">frames, phases</text><text x="284" y="91">viewer page</text>
+    <text x="398" y="26" font-weight="700">4 Convert</text><text x="398" y="41">le2act.py</text><text x="398" y="53">state 37, action 35</text><text x="398" y="67">successes only</text><text x="398" y="79">frames resized</text><text x="398" y="91">LeRobot 3.0</text>
+    <text x="512" y="26" font-weight="700">5 Train</text><text x="512" y="41">train_act.sh</text><text x="512" y="53">lerobot-train</text><text x="512" y="67">ACT, chunk 50</text><text x="512" y="79">(1 s at 50 Hz)</text><text x="512" y="91">checkpoints</text>
+    <text x="625" y="26" font-weight="700">6 Evaluate</text><text x="625" y="41">eval_act.py</text><text x="625" y="53">G1ActAgent.cs</text><text x="625" y="65">(to write)</text><text x="625" y="79">gRPC, lock-step</text><text x="625" y="91">paired seeds</text>
+  </g>
+  <g stroke="#1f4e79" stroke-width="1.2" marker-end="url(#ar6)" fill="none">
+    <line x1="108" y1="31" x2="116" y2="31"/><line x1="108" y1="81" x2="116" y2="81"/>
+    <line x1="222" y1="31" x2="230" y2="45"/><line x1="222" y1="81" x2="230" y2="67"/>
+    <line x1="336" y1="56" x2="344" y2="56"/><line x1="450" y1="56" x2="458" y2="56"/><line x1="564" y1="56" x2="572" y2="56"/>
+  </g>
+  <path d="M625,104 C625,150 56,150 56,106" fill="none" stroke="#1f4e79" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#ar6)"/>
+  <text x="340" y="162" text-anchor="middle" fill="#555">policy failures decide what to record next (more of a box, recovery data, more randomisation)</text>
+</svg>
+<figcaption><b>Figure 6.</b> The data pipeline. Stages 1&ndash;5 run today; stage 6's Python side is written and tested against a stand-in, its engine side (<code>G1ActAgent.cs</code>) is not written yet.</figcaption>
+</figure>
+<table>
+<thead><tr><th style="width:9%">Stage</th><th style="width:17%">Program</th><th style="width:17%">Reads</th><th style="width:29%">Writes</th><th style="width:28%">Checks / notes</th></tr></thead>
+<tbody>
+<tr><td>1 Record</td><td>The <code>G1BoxGrasp</code> controller (<code>src/</code>), with <code>src/Recording/Episodes.cs</code>, in the engine</td><td>The scene, the inspector fields (<em>RecordEpisodes</em>, <em>EpisodeCount</em>, <em>Seed</em>, &hellip;)</td><td>Through <code>Hazel.Data.Observer</code>: one session folder; the runner: one sidecar folder</td><td>Starts, ends and resets episodes; deals the box pool; logs every decision to <code>APP.log</code>.</td></tr>
+<tr><td>2a Session</td><td>LuckyEngine recorder, MujocoFull mode</td><td>MuJoCo qpos and ctrl, the cameras</td><td><code>DataSessions/session_&lt;date&gt;_&lt;time&gt;/</code>: <code>data/chunk-000/file-NNN.parquet</code>, <code>videos/observation.images.&lt;camera&gt;/chunk-000/file-NNN.mp4</code>, <code>meta/</code></td><td>One parquet and one MP4 per camera per episode; 50&nbsp;Hz; 256&times;256 H.264.</td></tr>
+<tr><td>2b Sidecar</td><td><code>RecordTick</code>, <code>EndRecordedEpisode</code></td><td>The controller's own values</td><td><code>DataSidecars/run_&lt;time&gt;/episode_NNNNNN.csv</code> and <code>.json</code></td><td>What the recorder cannot see: walker command, waist lock, phase, box and outcome (Appendix&nbsp;C).</td></tr>
+<tr><td>3 Check</td><td><code>qa.py</code>, <code>inspect_session.py</code></td><td>Session + sidecar + the robot MJCF</td><td>A per-episode table and optional CSV; an HTML viewer page in <code>~/Documents/LuckyEngine/Inspect/</code></td><td>Exit code 1 on any hard error, so a broken session cannot be converted by mistake.</td></tr>
+<tr><td>4 Convert</td><td><code>le2act.py</code></td><td>One or more sessions with their sidecars</td><td>A LeRobot 3.0 dataset folder plus <code>conversion_report.json</code></td><td>Finds the action shift per episode, keeps successes, resizes frames, writes through LeRobot's own writer.</td></tr>
+<tr><td>5 Train</td><td><code>train_act.sh</code> &rarr; <code>lerobot-train</code></td><td>The dataset</td><td><code>outputs/act_g1_&lt;mode&gt;_&lt;dataset&gt;/checkpoints/</code></td><td>smoke (20 steps), pilot (30k), full (100k).</td></tr>
+<tr><td>6 Evaluate</td><td><code>eval_act.py</code> + <code>G1ActAgent.cs</code></td><td>A checkpoint; the running editor over gRPC</td><td><code>eval_act.csv</code>: success, steps, phase reached per episode</td><td>Lock-step stepping (External Action Gate); same seeds as the expert.</td></tr>
+</tbody>
+</table>
+
+<h3>29.1 Recording a session</h3>
+<ol>
+<li>In the editor: sign in to LuckyHub (recording counts against the account's episode quota); open the Data recorder settings, set the data mode to <b>MujocoFull</b>, 50&nbsp;Hz, and add the cameras to record by their names (<code>head_camera</code>; the 22:08 session also had the default <code>Camera</code>). The head camera must look down at the belt, hands and table (section&nbsp;22).</li>
+<li>On the G1 entity's <code>G1BoxGrasp</code> script: <em>RecordEpisodes</em> on, <em>EpisodeCount</em> (12 per session so far), <em>RandomizeBox</em> on, <em>Seed</em> 0 (from the clock, logged) or a fixed number to repeat a session. The other recording fields keep their defaults (Appendix&nbsp;A).</li>
+<li>Press Play. On the first frame the runner saves the start state, calls <code>RegisterTask</code> for the six phase labels and <code>StartRecording</code>, deals the first box and begins episode&nbsp;0. Each episode ends on Done, on Failed or after <em>EpisodeTimeout</em>; the runner then writes the sidecar header, resets and begins the next. After <em>EpisodeCount</em> episodes it calls <code>StopRecording</code> and the robot stands still.</li>
+<li>The log line <code>episode N begins with &lt;Tag&gt; (W m wide, M kg), start moved X m down the belt, Y m across</code> and the matching <code>episode N failed (&hellip;)</code> or <code>Retract -&gt; Done</code> give the progress while it runs. Scripts must not be synced into the engine while a session is recording.</li>
+</ol>
+
+<h3>29.2 What one episode contains</h3>
+<table>
+<thead><tr><th style="width:26%">Item</th><th>Contents</th><th class="n" style="width:15%">Size (34&nbsp;s)</th></tr></thead>
+<tbody>
+<tr><td>Data rows (parquet)</td><td>One row per 20&nbsp;ms tick: <code>index</code>, <code>sim_id</code>, <code>episode_index</code>, <code>frame_index</code>, <code>timestamp</code>, <code>task_index</code>, <code>frame_flags</code>, <code>action</code> (43), <code>observation.state</code> (92 with six boxes).</td><td class="n">about 1&nbsp;MB</td></tr>
+<tr><td>Video per camera (MP4)</td><td>One frame per row, 256&times;256 RGB, H.264, 50&nbsp;fps.</td><td class="n">about 3&nbsp;MB (head camera)</td></tr>
+<tr><td>Session <code>meta/</code></td><td><code>info.json</code> (fps, feature names and shapes, paths), <code>stats.json</code>, <code>tasks.parquet</code> (the six labels), <code>episodes/</code> (length, video file and time range per episode; one empty row from <code>StopRecording</code>).</td><td class="n">&mdash;</td></tr>
+<tr><td>Sidecar CSV</td><td>One row per tick: <code>frame, sim_time, task_index, waist_lock, cmd_vx, cmd_vy, cmd_yaw, probe_ctrl</code>.</td><td class="n">about 75&nbsp;kB</td></tr>
+<tr><td>Sidecar JSON</td><td>Episode, seed, success, fail reason, box tag and size and mass, box and robot start, start offset, planar release error, seconds.</td><td class="n">about 0.4&nbsp;kB</td></tr>
+</tbody>
+</table>
+<p>A 12-episode session with the head camera only is about 43&nbsp;MB (20:22), with two cameras 65&nbsp;MB (22:08: 36&nbsp;MB head camera, 19&nbsp;MB <code>Camera</code>, 12&nbsp;MB data). The <code>DataSessions</code> folder held 268&nbsp;MB of test and real sessions on 30 October.</p>
+
+<h3>29.3 Reading a session: <code>common.py</code></h3>
+<ul>
+<li><b>Layouts.</b> The 31 upper-body joints in a fixed order (14 arm, 14 hand, 3 waist; Appendix&nbsp;C), the IMU columns, the 4 sidecar actions, the six phase names, the task text and the probe actuator (<code>left_wrist_roll_joint</code>).</li>
+<li><b><code>read_session</code></b> reads every data parquet, expands it, keeps the robot with the most rows, skips the empty meta row, sorts each episode by frame and finds its video file per camera from <code>meta/episodes</code> (or from the chunk rule: episode <i>N</i> in chunk &lfloor;<i>N</i>/40&rfloor;).</li>
+<li><b><code>expand_mujoco_full</code></b> names the columns from <code>meta/info.json</code>: <code>q.&lt;joint&gt;</code> from <code>observation.state</code>, <code>u.&lt;joint&gt;</code> from <code>action</code>, <code>pose.pelvis</code> and <code>pose.box.&lt;Tag&gt;</code> (x, y, z, qw, qx, qy, qz) from each free joint's seven values, and <code>flag.post_reset</code> from <code>frame_flags</code>.</li>
+<li><b><code>pelvis_imu</code></b> derives the six IMU values from the pelvis orientation (Appendix&nbsp;B): gravity in the pelvis frame and the pelvis angular velocity from consecutive quaternions, 0 on the first row.</li>
+<li><b><code>action_shift</code></b> compares the recorded ctrl of the probe actuator with what the script wrote (<code>probe_ctrl</code>) at shifts 0, 1 and 2 and returns the best one with its mean error. Every recorded episode so far gives shift&nbsp;1 at 1&ndash;7&times;10<sup>&minus;8</sup>&nbsp;rad, against about 8&times;10<sup>&minus;4</sup> at shifts 0 and 2.</li>
+<li><b><code>episode_arrays</code></b> builds the training arrays: state at row <i>k</i>, upper-body ctrl at row <i>k</i>&nbsp;+&nbsp;shift, walker command and waist lock from sidecar tick <i>k</i>, phase from sidecar tick <i>k</i>. <b><code>segment</code></b> cuts an episode into &ldquo;reach&rdquo; (catch to lift) and &ldquo;carry&rdquo; (carry to retract) for the two-policy option.</li>
+</ul>
+
+<h3>29.4 Checking a session: <code>qa.py</code></h3>
+<table>
+<thead><tr><th style="width:30%">Check (hard error if it fails)</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>No NaN in state or ctrl</td><td>A NaN poisons the normalisation statistics and the loss.</td></tr>
+<tr><td><code>frame_index</code> is 0, 1, 2, &hellip; with no gaps</td><td>A dropped row shifts the actions against the images.</td></tr>
+<tr><td>Every camera has exactly one video frame per row</td><td>The converter pairs row <i>k</i> with frame <i>k</i>.</td></tr>
+<tr><td><code>post_reset</code> only on frame&nbsp;0</td><td>A reset inside an episode would teach a teleport.</td></tr>
+<tr><td>Every upper-body ctrl inside its MJCF joint range</td><td>Out-of-range labels cannot be executed.</td></tr>
+<tr><td>Sidecar present, its tick count within 2 of the rows</td><td>The walker command and waist lock come from it.</td></tr>
+<tr><td>Alignment: best shift error under 10<sup>&minus;4</sup>, and the same shift in every episode</td><td>The action label must be the command given at that state, not the one before or after.</td></tr>
+<tr><td><code>waist_lock</code> only 0 or 1</td><td>It is a switch at deployment (above 0.5 the agent drives the waist).</td></tr>
+</tbody>
+</table>
+<p>It then prints each episode (frames, success, shift, box width and mass, fail reason), the success rate, the mean time per phase and histograms of box width and mass, so the coverage of the randomisation can be seen. On the 22:08 session: 0 errors, shift 1 in all 12 episodes.</p>
+
+<h3>29.5 Looking at a session: <code>inspect_session.py</code></h3>
+<p>Writes one self-contained HTML page per session (section&nbsp;22): every check marked pass, warning or fail per episode, the phase timeline, each camera's frame at the start of every phase, and hover charts of each joint's angle against its command, the walker command, the waist lock, the IMU and the box and pelvis paths (only the episode's own box). It is the way to look at many episodes quickly and to find where a failure starts before reading the log.</p>
+
+<h3>29.6 Converting: <code>le2act.py</code></h3>
+<ul>
+<li><b>Inputs.</b> <code>--session</code> and <code>--sidecar</code> (one or more of each, in the same order), <code>--cameras key=OutputName</code> (for example <code>head=head_camera</code>; the key becomes <code>observation.images.head</code>), <code>--size</code> (default 256x256), <code>--shift auto</code>, <code>--segment all|reach|carry</code>, <code>--include-failures</code>, <code>--dry-run</code>.</li>
+<li><b>Per episode.</b> Skip if there is no sidecar, a camera is missing, or the expert failed (unless asked); find the shift; build state, action and phase; cut to the shortest of rows and video frames and to the segment; decode the frames from the episode's start time and resize them; add each frame (state, action, phase, images, task text) through <code>LeRobotDataset.add_frame</code>, then <code>save_episode</code>. One session is in memory at a time.</li>
+<li><b>Output.</b> A LeRobot 3.0 dataset (<code>robot_type</code> <code>unitree_g1_three_fingers</code>, 50&nbsp;fps, video features), its statistics computed by LeRobot over the kept episodes, and <code>conversion_report.json</code> listing every kept episode (source, frames, shift, seed, box) and every skipped one with the reason.</li>
+<li><b>On the real data.</b> A dry run on the two randomised sessions (20:22 and 22:08) with the head camera kept <b>16 of 24 episodes, 27,067 frames</b> (9.0 minutes), every one at shift 1 with probe errors 1.3&ndash;6.5&times;10<sup>&minus;8</sup>&nbsp;rad; the 8 failures were skipped with their reasons.</li>
+</ul>
+
+<h3>29.7 Testing without the engine</h3>
+<p><code>make_fake_session.py</code> writes a session in the MujocoFull layout (with the trailing empty episode row) and its sidecar, with a chosen ctrl lag, synthetic joint motion and videos whose frames encode their index. <code>tests/selftest.sh &lt;g1_three_fingers.xml&gt;</code> runs the whole chain on it: QA, conversion at 48&times;64, a load-back that checks the dataset has 2 episodes and 238 frames, that the probe action equals what the &ldquo;script&rdquo; wrote and that video frames 1, 60 and 118 are the right ones, the viewer, 20 ACT training steps on the CPU and an evaluation against a stand-in <code>luckyrobots</code> Session (<code>tests/stub/</code>). It passed after every change.</p>
+
+<h3>29.8 Environment</h3>
+<p>Python 3.12 in <code>data_pipeline/.venv</code> (created with <code>uv</code>, not committed): <code>lerobot[training]</code> 0.6.1, <code>luckyrobots</code> 0.5.0, PyTorch 2.11 with CUDA 13.0, <code>av</code>, numpy, pandas, pyarrow (<code>requirements.txt</code>). The GTX&nbsp;1650 (4&nbsp;GB) runs ACT: 20 steps took about 2&nbsp;s and 1.25&nbsp;GB. The code guide is <code>data_pipeline/README.html</code>; Appendix&nbsp;D lists the commands.</p>
+
+<h2 class="pb">30. Using the data to train and run ACT</h2>
+<p>The scripted controller is the teacher. It decides from <em>privileged</em> state that a real robot does not have: the exact box pose from MuJoCo, tared contact forces, the grip frame. ACT (Action Chunking with Transformers) is the student. It is trained by behaviour cloning to produce the same commands from what a real G1 can sense: its joint angles, its pelvis IMU and its head camera. Once it does, the policy can run without the script, and later on hardware.</p>
+
+<h3>30.1 What ACT controls, and what it does not</h3>
+<table>
+<thead><tr><th style="width:24%">Part</th><th>Who drives it at deployment</th></tr></thead>
+<tbody>
+<tr><td>Arms (14), hands (14)</td><td><b>ACT</b>: joint-position targets written straight into the actuators' ctrl. No IK at run time: the policy learns the postures the IK and the wrist servo produced, elbows-out pole included.</td></tr>
+<tr><td>Waist (3)</td><td><b>ACT</b> while its <code>waist_lock</code> output is above 0.5 (it learns the held angles from grip confirm to Release); the walker otherwise, as the expert does.</td></tr>
+<tr><td>Walking</td><td><b>ACT</b> gives the walker's command (vx, vy, yaw rate): stand still for the catch, back off, turn, walk, face the table.</td></tr>
+<tr><td>Legs (12) and balance</td><td>The <b>RL walker</b> policy, unchanged. A few hundred demonstrations cannot replace a learned balance controller, and the walker is what a real G1 would run too.</td></tr>
+</tbody>
+</table>
+<p>This is option&nbsp;B of the plan, and it is exactly the interface the expert uses, so every action label is something the robot really executed. The policy never sees the box pose, contact forces or the phase label; the phase is stored only to cut segments and to score evaluations.</p>
+
+<h3>30.2 One training sample</h3>
+<p>For every frame <i>t</i> of a kept episode, LeRobot gives ACT:</p>
+<ul>
+<li><b>Inputs at <i>t</i>:</b> the head camera image (256&times;256 RGB) and <code>observation.state</code>, 37 values: 31 joint angles, gravity in the pelvis frame (3), pelvis angular velocity (3). One observation step: ACT has no memory of earlier frames, so whatever it must know (has the grip been confirmed? is the box still swinging?) has to be visible in the image, the joints or the IMU.</li>
+<li><b>Target:</b> the next 50 actions <i>a<sub>t</sub></i> &hellip; <i>a</i><sub><i>t</i>+49</sub> (1&nbsp;s at 50&nbsp;Hz), each 35 values: the 31 ctrl, <code>waist_lock</code>, <code>cmd_vx</code>, <code>cmd_vy</code>, <code>cmd_yaw</code>. Near the end of an episode the missing actions are padded and masked out of the loss.</li>
+<li><b>Normalisation:</b> state, action and image channels are each shifted and scaled by their mean and standard deviation over the dataset (LeRobot's MEAN_STD mode for ACT), so joint angles in radians, a 0/1 lock and walk speeds in m/s weigh alike.</li>
+</ul>
+<figure>
+<svg viewBox="0 0 680 170" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, Arial, sans-serif" font-size="9">
+  <defs><marker id="ar7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1f4e79"/></marker></defs>
+  <g fill="#e9edf2" stroke="#1f4e79" stroke-width="1">
+    <rect x="4" y="8" width="110" height="34" rx="4"/><rect x="4" y="50" width="110" height="34" rx="4"/><rect x="4" y="92" width="110" height="46" rx="4"/>
+    <rect x="140" y="8" width="96" height="34" rx="4"/><rect x="140" y="50" width="96" height="34" rx="4"/><rect x="140" y="92" width="96" height="46" rx="4"/>
+    <rect x="262" y="30" width="110" height="86" rx="4"/>
+    <rect x="398" y="30" width="110" height="86" rx="4"/>
+    <rect x="534" y="30" width="142" height="86" rx="4"/>
+  </g>
+  <g fill="#1a1a1a" text-anchor="middle">
+    <text x="59" y="22" font-weight="700">head image</text><text x="59" y="35">256&#215;256 RGB</text>
+    <text x="59" y="64" font-weight="700">state</text><text x="59" y="77">37 = 31 q + IMU 6</text>
+    <text x="59" y="106" font-weight="700">style z (32)</text><text x="59" y="119">train: from the chunk</text><text x="59" y="131">run time: 0</text>
+    <text x="188" y="22">ResNet-18</text><text x="188" y="35">8&#215;8 feature tokens</text>
+    <text x="188" y="64">linear</text><text x="188" y="77">1 token</text>
+    <text x="188" y="111">linear</text><text x="188" y="124">1 token</text>
+    <text x="317" y="50" font-weight="700">encoder</text><text x="317" y="64">4 transformer layers</text><text x="317" y="78">d = 512, 8 heads</text><text x="317" y="92">all tokens +</text><text x="317" y="104">position embeddings</text>
+    <text x="453" y="50" font-weight="700">decoder</text><text x="453" y="64">1 layer</text><text x="453" y="78">50 learned queries</text><text x="453" y="92">attend to the</text><text x="453" y="104">encoder tokens</text>
+    <text x="605" y="50" font-weight="700">action chunk</text><text x="605" y="64">50 &#215; 35</text><text x="605" y="78">31 ctrl + waist lock</text><text x="605" y="92">+ vx, vy, yaw rate</text><text x="605" y="104">loss: L1 + 10&#183;KL</text>
+  </g>
+  <g stroke="#1f4e79" stroke-width="1.2" marker-end="url(#ar7)" fill="none">
+    <line x1="114" y1="25" x2="138" y2="25"/><line x1="114" y1="67" x2="138" y2="67"/><line x1="114" y1="115" x2="138" y2="115"/>
+    <line x1="236" y1="25" x2="260" y2="50"/><line x1="236" y1="67" x2="260" y2="72"/><line x1="236" y1="115" x2="260" y2="96"/>
+    <line x1="372" y1="73" x2="396" y2="73"/><line x1="508" y1="73" x2="532" y2="73"/>
+  </g>
+  <text x="340" y="160" text-anchor="middle" fill="#555">every frame t of a kept episode is one sample; the target is the expert's next 50 actions</text>
+</svg>
+<figcaption><b>Figure 7.</b> ACT as configured for this task (LeRobot 0.6.1 defaults, chunk 50). The CVAE encoder sees the true action chunk only in training and gives the &ldquo;style&rdquo; z; at run time z is 0.</figcaption>
+</figure>
+
+<h3>30.3 The network and the training settings</h3>
+<table>
+<thead><tr><th style="width:30%">Setting</th><th style="width:24%">Value</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Vision backbone</td><td>ResNet-18, ImageNet weights, one per camera stream</td><td>LeRobot's ACT default; fine-tuned at the same learning rate.</td></tr>
+<tr><td>Transformer</td><td>d<sub>model</sub> 512, 8 heads, feed-forward 3200, 4 encoder layers, 1 decoder layer, dropout 0.1</td><td>LeRobot defaults (one decoder layer reproduces the original ACT code).</td></tr>
+<tr><td>CVAE</td><td>latent 32, 4-layer encoder, KL weight 10</td><td>Lets one network hold several ways of doing the same moment (for example how long to wait for the box) without averaging them.</td></tr>
+<tr><td>Chunk size / actions run per query</td><td>50 / 50 in training (LeRobot's default is 100)</td><td>1&nbsp;s, about the length of the expert's slowest single motions: the squeeze, the turn ramp. Try 100 if motions look jerky between chunks.</td></tr>
+<tr><td>Optimiser</td><td>AdamW, learning rate 10<sup>&minus;5</sup> (backbone too), weight decay 10<sup>&minus;4</sup>, batch 8</td><td>ACT paper defaults; batch 8 fits the 4&nbsp;GB GPU at 256&times;256.</td></tr>
+<tr><td>Steps</td><td>smoke 20, pilot 30,000, full 100,000; checkpoint every 5,000 / 10,000</td><td>Judge checkpoints by closed-loop success, not by the loss: ACT's validation loss barely tracks success.</td></tr>
+<tr><td>At run time</td><td>Temporal ensembling, coefficient 0.01: a new chunk every step, overlapping predictions averaged with weights e<sup>&minus;0.01&middot;<i>i</i></sup></td><td>Smooth arms: a jolt at a chunk boundary is exactly what loosens a held box.</td></tr>
+</tbody>
+</table>
+
+<h3>30.4 How much data, and from where</h3>
+<table>
+<thead><tr><th style="width:18%">Step</th><th style="width:30%">Data</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><b>Now</b></td><td>16 successful episodes, 27,067 frames (sessions 20:22 and 22:08)</td><td>Proves the chain on real recordings (convert, load, train a few steps). Far too few for a working policy.</td></tr>
+<tr><td>Pilot (plan M3)</td><td>About 200 episodes of one box, <code>--segment reach</code> (catch to lift, about 13&nbsp;s each)</td><td>Does ACT learn the catch and the squeeze from these inputs at all? 30k steps; closed-loop on 50 seeds.</td></tr>
+<tr><td>Full (plan M4)</td><td>500&ndash;1,000 randomised episodes over the pool</td><td>The whole task for every box; 100k steps. About 1,500 frames per episode, so 0.75&ndash;1.5 million frames.</td></tr>
+<tr><td>Robustness (plan M5)</td><td>+ DART noise on the walker command and pushes on the box (header field <code>perturbation</code>, &ldquo;none&rdquo; so far)</td><td>Behaviour cloning only sees states the expert visits; these episodes show it how the expert recovers.</td></tr>
+</tbody>
+</table>
+<ul>
+<li><b>Recording cost.</b> At the 22:08 rate (44&nbsp;s of wall time per episode, 0.7&times; real time) 1,000 episodes take about 12 hours of recording and about 3.6&nbsp;GB with the head camera (5.4&nbsp;GB with two). Sessions of 12&ndash;50 episodes are easier to check and to throw away.</li>
+<li><b>Only successes are training data.</b> With the expert at 16/24, about a third of the recordings are discarded. That is why fixing the 1&nbsp;kg 0.2&nbsp;m box (section&nbsp;28) and the slips in Place matters before the large sessions, and why the deal gives every box the same number of episodes. Failed episodes stay in the sessions for analysis (<code>--include-failures</code> converts them separately).</li>
+<li><b>Cameras.</b> Train on <code>head_camera</code> only: it is the one camera a real G1 has (the head D435i). The scene's <code>Camera</code> is a fixed external view and should not be a policy input; wrist cameras (plan option) are not in the scene yet.</li>
+</ul>
+
+<h3>30.5 Running the policy: closed-loop evaluation</h3>
+<ol>
+<li><b>Engine side, <code>G1ActAgent.cs</code> (to write).</b> A <code>RobotAgent</code> registered through a <code>RobotManager</code> in the scene. Its joint spec is the 31 upper-body actuators. <code>OnAction</code> receives the 35 values: it writes the 31 ctrl, applies <code>waist_lock</code> through the same <code>HoldWaist</code> path the expert uses (script-owned waist above 0.5), and passes (vx, vy, yaw rate) to the walker slot. <code>OnState</code> publishes the same 37 state values as the dataset, computed the same way, then done, success and phase. The episode runner resets the scene and places the box with the same seeds as the expert's episodes.</li>
+<li><b>Python side, <code>eval_act.py</code> (written).</b> Loads the checkpoint and its pre- and post-processors, connects a <code>luckyrobots</code> Session to the running editor, sets the cameras to the training size, and for each episode: reset, then step until done or <code>--max-steps</code> (4,000 = 80&nbsp;s). Each step: read the state and camera frames from the response, run the policy (temporal ensembling 0.01), send the 35 actions. The External Action Gate advances the simulation one tick per call, so the loop needs no timing of its own.</li>
+<li><b>Scoring.</b> Success, steps and the phase reached per episode, in <code>eval_act.csv</code>; a seed the expert passes but ACT fails is a policy failure, and its video and state trace decide what to record next (Figure&nbsp;6).</li>
+</ol>
+
+<h3>30.6 Choices to test once a policy runs</h3>
+<ul>
+<li><b>One policy or two.</b> About 30&nbsp;s and six phases is long for ACT (most published ACT tasks are 10&ndash;20&nbsp;s). If the policy loses track of where it is (for example, reaches again while carrying), train two on <code>--segment reach</code> and <code>--segment carry</code> and switch on the grip being confirmed.</li>
+<li><b>Chunk 50 against 100</b>, and ensembling on against whole chunks.</li>
+<li><b>More state.</b> If the expert relies on hidden values (timers, latched angles), add what is needed to the state, or a palm touch sensor (the real Dex3 hand has tactile sensing).</li>
+<li><b>Sim-to-real.</b> The inputs are already real-robot signals only (joint encoders, the pelvis IMU, the head camera), and the MJCF limits are kept as they are, so the gap is not widened (no raised wrist torque limits).</li>
+</ul>
+
+<h3>30.7 Where the plan stands</h3>
+<table>
+<thead><tr><th style="width:7%">#</th><th style="width:22%">Milestone</th><th style="width:18%">State</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>M0</td><td>Expert ready (&ge;&nbsp;90&nbsp;%)</td><td>Partly</td><td>16/24 over the pool; 0.3&nbsp;m boxes 7/8, light 0.2&nbsp;m 7/8, 0.4&nbsp;m 2&nbsp;kg 2/4, 0.2&nbsp;m 1&nbsp;kg 0/4.</td></tr>
+<tr><td>M1</td><td>Engine plumbing</td><td>Mostly done</td><td>Recording, reset, alignment, box pool all work. A dummy <code>G1ActAgent</code> next to the walker slot over gRPC is not tried yet.</td></tr>
+<tr><td>M2</td><td>Data tooling</td><td>Done</td><td>QA, viewer, converter and self-test work on real sessions; a 50-episode pilot session is still to record.</td></tr>
+<tr><td>M3</td><td>Pilot policy</td><td>Not started</td><td>Needs about 200 episodes of one box and the agent.</td></tr>
+<tr><td>M4</td><td>Full task</td><td>Not started</td><td>500&ndash;1,000 randomised episodes.</td></tr>
+<tr><td>M5</td><td>Robustness</td><td>Not started</td><td>DART, pushes, appearance randomisation, robot start-pose randomisation.</td></tr>
+</tbody>
+</table>
+
+<h2 class="pb">31. Commits, state and known issues at submission</h2>
 <table>
 <thead><tr><th>Commit</th><th>Date</th><th>Message</th><th>Contents</th></tr></thead>
 <tbody>
@@ -704,19 +1006,33 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tr><td><code>9de7a09</code></td><td>30 Oct 16:51</td><td>Data collection works</td><td>Episode runner, MujocoFull reader, pelvis IMU, viewer (sections 22&ndash;23).</td></tr>
 <tr><td><code>986ee99</code></td><td>30 Oct 18:09</td><td>Box pool randomization, drag-in and waist-lock fixes</td><td>Sections 24, 25.1, 25.2.</td></tr>
 <tr><td><code>0700197</code></td><td>30 Oct 20:34</td><td>Data collection with box randomization works</td><td>Deal and jitter; grasp restored to <code>82bc6f9</code> (section 25.4).</td></tr>
+<tr><td><code>2b88c01</code></td><td>30 Oct</td><td>Report updated to 30 October; ACT explainer</td><td>This report up to section 27; <code>docs/ACT_explained.html</code>.</td></tr>
 </tbody>
 </table>
+<p><b>State.</b> The controller catches, grips, carries and places 0.2&ndash;0.4&nbsp;m boxes of 0.45&ndash;2&nbsp;kg (all but the 1&nbsp;kg 0.2&nbsp;m box, which slips in the turn), and records them as repeatable, randomised, checked episodes. The controller is 3,721 lines with 92 inspector fields, the episode runner 305 lines with 9 fields, split since 31 October into 22 files under <code>src/</code> (section&nbsp;1); the Python pipeline is about 1,000 lines. The engine copy differs from the repo only in <em>ArmReach</em> (0.65 against 0.50).</p>
 <p><b>Known issues.</b></p>
 <ul>
-<li>0.2&nbsp;m boxes slip out at the start of the carry turn (TurnToTable); the 1&nbsp;kg one every time so far.</li>
-<li>A 2&nbsp;kg 0.4&nbsp;m box slipped once in Place.</li>
-<li>With the <code>82bc6f9</code> grasp, the parked right hand again sags onto the conveyor edge and springs up at the pre-grasp; the tall-box right-wrist wind-up (section 20.3) may return.</li>
-<li>The arm IK solver's state survives the reset, so identical starts can still diverge (section 26).</li>
-<li><em>BoxStart</em> sits close to the belt's top end, so the jitter can only move the box down the belt.</li>
-<li>The scene's <code>Box_W40_L</code> is currently 0.2&nbsp;m long.</li>
-<li>Not yet written: <code>G1ActAgent.cs</code> for closed-loop evaluation, and randomisation of the robot's start pose. <code>docs/ACT_explained.html</code> is not committed.</li>
-<li>The controller is 3,721 lines with 92 inspector fields, plus 305 lines and 9 fields in the episode runner. The engine copy still differs only in <em>ArmReach</em>.</li>
+<li>The 1&nbsp;kg 0.2&nbsp;m box slips out in the in-place turn in every recorded attempt (0/4; section&nbsp;28).</li>
+<li>0.3&ndash;0.4&nbsp;m boxes sometimes slip as Place lowers them (3 of 8 episodes of W30_L and W40_H).</li>
+<li>Placing is simplified: the box is released wherever it is over the table, 5&ndash;21&nbsp;cm from the table spot (mean 9.2&nbsp;cm over the 16 successes), and the turn at the table stops 7&ndash;9&deg; short after two tries.</li>
+<li>With the <code>82bc6f9</code> grasp the parked right hand sags onto the conveyor edge during the catch and springs up at the pre-grasp; the tall-box right-wrist wind-up (section&nbsp;20.3) may return.</li>
+<li>The recorder's reset leaves the body standing 3&ndash;5&nbsp;cm further back than a plain Play, and the arm IK solver's state survives the reset, so identical starts can still diverge (section&nbsp;26).</li>
+<li><em>BoxStart</em> is near the belt's top end, so the jitter only moves the box down the belt. The robot's start pose is not randomised.</li>
+<li>The scene's <code>Box_W40_L</code> is currently 0.2&nbsp;m long and was set to density 220 for the last test; it must be put back (0.4&nbsp;m, density 100) before more pool sessions, or the pool holds two 1&nbsp;kg 0.2&nbsp;m boxes.</li>
+<li>Not yet written: <code>G1ActAgent.cs</code>; DART and push episodes; robot start-pose and appearance randomisation.</li>
 </ul>
+<p><b>Next steps, in order.</b></p>
+<ol>
+<li>Slow the carry turn for heavy boxes and re-record the pool until every box is at 90&nbsp;% or better (M0).</li>
+<li>Restore <code>Box_W40_L</code> to 0.4&nbsp;m and density 100.</li>
+<li>Write <code>G1ActAgent.cs</code> and run a dummy policy next to the walker over gRPC (M1).</li>
+<li>Record about 200 episodes of one box, train the pilot on the catch-to-lift segment and evaluate it closed-loop on 50 seeds (M3).</li>
+<li>Record 500&ndash;1,000 randomised episodes, train the full task, compare one policy with two (M4), then add recovery data (M5).</li>
+</ol>
+
+<h2>32. Conclusion</h2>
+<p>Over these two weeks a resting-box pick-and-place became a full conveyor task: the G1 predicts a box sliding down a tilted, nearly frictionless belt, stops it with one hand while giving with it, centres it, grips it with both palms under a capped, force-controlled squeeze, lifts it, backs off, turns, walks and puts it on a side table, all with the RL walker keeping balance and a waist lock keeping the torso still. The main lessons were about margins: the 5&nbsp;N&middot;m wrists, the low box friction and the walker's own motion leave little room, and each fix that helped one box on one run tended to move the problem elsewhere. Repeatable episodes, a box pool dealt like cards and a start jitter turned single runs into success rates, which is the only evidence worth having for such changes.</p>
+<p>The data side works end to end: the engine records the episodes, the script adds what the recorder cannot see, every session is checked to the tick, and the result converts into a LeRobot dataset with the actions aligned to 10<sup>&minus;7</sup>&nbsp;rad and video in sync. The next steps are to raise the expert to 90&nbsp;% on every box, write the evaluation agent, and train ACT, first on the catch and grasp and then on the whole task, so that the robot can do it from its joints, its IMU and its head camera alone.</p>
 
 <h2 class="pb">Appendix A. Inspector fields added</h2>
 <table>
@@ -811,8 +1127,116 @@ With the palms 1–4&deg; off parallel and squeezing 14–28&nbsp;N each, a cont
 <tr><td>Start jitter</td><td>start = BoxStart + down&middot;u&middot;J<sub>x</sub> + (n &times; down)&middot;(2v &minus; 1)&middot;J<sub>y</sub>, u, v ~ U(0,1) from seed BaseSeed + e; down = normalize(n&middot;n<sub>y</sub> &minus; up)</td></tr>
 <tr><td>Box placed in MuJoCo</td><td>p<sub>Mj</sub> = A&middot;(p<sub>world</sub> &minus; sceneTranslation), q<sub>Mj</sub> = A for an upright box, A = GetAxisHzToMj() = (0.707, 0.707, 0, 0)</td></tr>
 <tr><td>Twist resisted by torsional friction</td><td>&tau; = &mu;<sub>torsion</sub> &middot; N per contact, against the box's weight &times; its offset from the grip line</td></tr>
+<tr><td>Normalisation (state, action, image channels)</td><td>x&#770; = (x &minus; &mu;) / &sigma;, with &mu; and &sigma; over the kept episodes (LeRobot MEAN_STD)</td></tr>
+<tr><td>ACT training target</td><td>for frame t: the chunk a<sub>t</sub> &hellip; a<sub>t+49</sub> (50 &times; 35), padded past the episode's end and masked out of the loss</td></tr>
+<tr><td>ACT loss</td><td>L = (1/|valid|) &Sigma; |&acirc;<sub>t+i</sub> &minus; a<sub>t+i</sub>|<sub>1</sub> + &beta;&middot;KL(q(z | a, s) &#8214; N(0, I)), &beta; = 10, z &isin; &#8477;<sup>32</sup></td></tr>
+<tr><td>Temporal ensembling (run time)</td><td>a<sub>t</sub> = &Sigma;<sub>i</sub> w<sub>i</sub>&middot;&acirc;<sub>t</sub><sup>(i)</sup> / &Sigma;<sub>i</sub> w<sub>i</sub>, w<sub>i</sub> = e<sup>&minus;0.01&middot;i</sup>, i = 0 for the oldest chunk that predicts step t</td></tr>
+<tr><td>Waist hand-over at deployment</td><td>agent drives the waist when waist_lock &gt; 0.5, the walker otherwise</td></tr>
+<tr><td>Recording cost</td><td>wall time &asymp; 44 s &times; episodes (0.7&times; real time); disk &asymp; 3.6 MB per episode with the head camera</td></tr>
 </tbody>
 </table>
+
+
+<h2 class="pb">Appendix C. Data layouts</h2>
+<h3>C.1 <code>observation.state</code> (37) and <code>action</code> (35) in the ACT dataset</h3>
+<table>
+<thead><tr><th class="n" style="width:10%">Index</th><th style="width:45%">observation.state</th><th class="n" style="width:10%">Index</th><th>action</th></tr></thead>
+<tbody>
+<tr><td class="n">0&ndash;6</td><td>q of left shoulder pitch, roll, yaw, elbow, wrist roll, pitch, yaw</td><td class="n">0&ndash;6</td><td>ctrl of the same left arm joints</td></tr>
+<tr><td class="n">7&ndash;13</td><td>q of the same right arm joints</td><td class="n">7&ndash;13</td><td>ctrl of the right arm joints</td></tr>
+<tr><td class="n">14&ndash;20</td><td>q of left hand thumb 0, 1, 2, index 0, 1, middle 0, 1</td><td class="n">14&ndash;20</td><td>ctrl of the left hand joints</td></tr>
+<tr><td class="n">21&ndash;27</td><td>q of the same right hand joints</td><td class="n">21&ndash;27</td><td>ctrl of the right hand joints</td></tr>
+<tr><td class="n">28&ndash;30</td><td>q of waist yaw, roll, pitch</td><td class="n">28&ndash;30</td><td>ctrl of the waist joints (held angles while locked)</td></tr>
+<tr><td class="n">31&ndash;33</td><td>gravity direction in the pelvis frame (x, y, z)</td><td class="n">31</td><td>waist_lock (0/1)</td></tr>
+<tr><td class="n">34&ndash;36</td><td>pelvis angular velocity in the pelvis frame (rad/s)</td><td class="n">32&ndash;34</td><td>walker command vx, vy (m/s), yaw rate (rad/s)</td></tr>
+</tbody>
+</table>
+<p class="k">Names in the dataset: <code>q.&lt;joint&gt;</code>, <code>imu.pelvis_gravity.x</code> &hellip; <code>imu.pelvis_gyro.z</code>; <code>u.&lt;joint&gt;</code>, <code>waist_lock</code>, <code>cmd_vx</code>, <code>cmd_vy</code>, <code>cmd_yaw</code>. Other features: <code>observation.images.head</code> (video, 256&times;256&times;3), <code>phase</code> (int64; 0 catch, 1 grasp, 2 lift, 3 carry, 4 place, 5 retract), plus LeRobot's own <code>timestamp</code>, <code>frame_index</code>, <code>episode_index</code>, <code>index</code>, <code>task_index</code>.</p>
+<h3>C.2 Phase labels</h3>
+<table>
+<thead><tr><th class="n" style="width:10%">task_index</th><th style="width:15%">Label</th><th>Controller phases</th></tr></thead>
+<tbody>
+<tr><td class="n">0</td><td>catch</td><td>Start, FindBox, (walk), Catch</td></tr>
+<tr><td class="n">1</td><td>grasp</td><td>PreGrasp, Squeeze, Holding</td></tr>
+<tr><td class="n">2</td><td>lift</td><td>DragIn, Lift, PullIn</td></tr>
+<tr><td class="n">3</td><td>carry</td><td>BackOff, TurnToTable, WalkToTable, FaceTable</td></tr>
+<tr><td class="n">4</td><td>place</td><td>Place, Release</td></tr>
+<tr><td class="n">5</td><td>retract</td><td>Retract</td></tr>
+</tbody>
+</table>
+<h3>C.3 Sidecar files</h3>
+<table>
+<thead><tr><th style="width:24%">Field</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td colspan="2"><b>episode_NNNNNN.csv</b>, one row per control tick</td></tr>
+<tr><td><code>frame</code>, <code>sim_time</code></td><td>Tick number from 0 (equals the Observer's <code>frame_index</code>) and simulated seconds.</td></tr>
+<tr><td><code>task_index</code></td><td>Phase label (C.2).</td></tr>
+<tr><td><code>waist_lock</code></td><td>1 from grip confirm to Release, else 0.</td></tr>
+<tr><td><code>cmd_vx</code>, <code>cmd_vy</code>, <code>cmd_yaw</code></td><td>The command sent to the walker slot this tick.</td></tr>
+<tr><td><code>probe_ctrl</code></td><td>What the script wrote to <code>left_wrist_roll_joint</code>: finds and proves the action shift.</td></tr>
+<tr><td colspan="2"><b>episode_NNNNNN.json</b>, the header</td></tr>
+<tr><td><code>episode</code>, <code>seed</code></td><td>Episode number in the session; BaseSeed + episode (the jitter seed).</td></tr>
+<tr><td><code>success</code>, <code>fail_reason</code></td><td>Done or not; the first failure as &ldquo;Phase: reason&rdquo;.</td></tr>
+<tr><td><code>box</code></td><td>Tag, width, depth, height (m) and mass (kg) of the episode's box.</td></tr>
+<tr><td><code>box_start</code>, <code>robot_start</code></td><td>World positions at frame 0.</td></tr>
+<tr><td><code>start_offset</code></td><td>The jitter: metres down the belt, metres across.</td></tr>
+<tr><td><code>perturbation</code></td><td>Recovery-data label (&ldquo;none&rdquo; so far).</td></tr>
+<tr><td><code>release_error</code></td><td><code>planar</code>: box centre to the table spot at release (m); <code>height</code> not filled yet.</td></tr>
+<tr><td><code>max_slip</code>, <code>max_wrist_dev_deg</code></td><td>Reserved (null).</td></tr>
+<tr><td><code>seconds</code></td><td>Episode length.</td></tr>
+</tbody>
+</table>
+<h3>C.4 MujocoFull session columns</h3>
+<table>
+<thead><tr><th style="width:24%">Column</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>observation.state</code> (92)</td><td>Pelvis free joint x, y, z, qw, qx, qy, qz (MuJoCo frame); 43 joint angles (12 legs, 3 waist, 14 arms, 14 hands); 7 per free box, named <code>&lt;Tag&gt;_x</code> &hellip; <code>_qz</code>.</td></tr>
+<tr><td><code>action</code> (43)</td><td>Every actuator's ctrl by joint name; the walker's legs and the unlocked waist read 0.</td></tr>
+<tr><td><code>frame_flags</code></td><td>Bit <code>new_policy_step</code>, bit <code>post_reset</code>.</td></tr>
+<tr><td><code>task_index</code>, <code>timestamp</code>, <code>frame_index</code>, <code>episode_index</code>, <code>index</code>, <code>sim_id</code></td><td>Labels and counters (one robot: one <code>sim_id</code>).</td></tr>
+</tbody>
+</table>
+
+<h2 class="pb">Appendix D. Command reference</h2>
+<ul class="k">
+<li>C# commands run from the repo root <code>~/projects/robot_code/G1BoxGrasp</code>; Python commands from its <code>data_pipeline/</code> folder after <code>source .venv/bin/activate</code>.</li>
+<li><code>S</code> = <code>~/Documents/LuckyEngine/Projects/g1_sort/DataSessions</code></li>
+<li><code>C</code> = <code>~/Documents/LuckyEngine/DataSidecars</code></li>
+<li><code>M</code> = <code>~/Documents/LuckyEngine/Projects/g1_sort/Assets/ContentVault/Robots/UnitreeG1ThreeFingers/g1_three_fingers.xml</code></li>
+</ul>
+<pre># C# (repo root): format, then build and copy src/ into the engine's Source/G1BoxGrasp/ (only on a clean build;
+# sets the engine's ArmReach 0.65, removes the old single files, updates the engine's file list)
+~/.local/share/nvim/mason/bin/csharpier format src
+./sync_engine.sh
+
+# Python (data_pipeline/): whole chain without the engine
+tests/selftest.sh $M
+
+# check a session, then look at it
+python qa.py --session $S/session_2026-10-30_22-08-44 --sidecar $C/run_20261030_220846 \
+  --mjcf $M --cameras head_camera --csv qa.csv
+python inspect_session.py --session $S/session_2026-10-30_22-08-44 \
+  --sidecar $C/run_20261030_220846 --mjcf $M \
+  --out ~/Documents/LuckyEngine/Inspect/inspect_session_2026-10-30_22-08-44.html
+
+# convert sessions into one dataset (add --dry-run to only report)
+python le2act.py --session $S/session_2026-10-30_20-22-04 $S/session_2026-10-30_22-08-44 \
+  --sidecar $C/run_20261030_202206 $C/run_20261030_220846 \
+  --cameras head=head_camera --size 256x256 --out datasets/g1_box_act --repo-id local/g1_box_act
+#   pilot half only: --segment reach --out datasets/g1_box_reach
+
+# train
+./train_act.sh smoke datasets/g1_box_act cuda   # 20 steps: loads and trains
+./train_act.sh pilot datasets/g1_box_reach      # 30k steps
+./train_act.sh full  datasets/g1_box_act        # 100k steps
+
+# evaluate closed-loop (needs G1ActAgent in the scene and the editor's gRPC server)
+python eval_act.py --checkpoint outputs/act_g1_full_g1_box_act/checkpoints/last/pretrained_model \
+  --cameras head=head_camera --size 256x256 --episodes 50 --csv eval.csv
+
+# sizes
+du -sh $S/*        # per session
+du -sh .           # current directory</pre>
 
 </body>
 </html>
